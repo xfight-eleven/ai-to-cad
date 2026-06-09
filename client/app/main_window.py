@@ -424,14 +424,18 @@ class MainWindow(QMainWindow):
         self.btn_add_session.setVisible(True)
 
     def _switch_session(self, session_id, title):
+        if self.current_session_id == session_id:
+            return  # 避免重复加载
         self.current_session_id = session_id
         self.current_session_title = title
-        # Highlight the active tab
+        # Highlight the active tab (block signals to prevent re-trigger)
         for i in range(self.session_tabs.count()):
             item = self.session_tabs.itemAt(i)
             if item.widget() and isinstance(item.widget(), QPushButton):
                 btn = item.widget()
+                btn.blockSignals(True)
                 btn.setChecked(btn.text() == title)
+                btn.blockSignals(False)
         # Clear old data
         self.chat_area.clear()
         self.version_tree.clear()
@@ -518,7 +522,6 @@ class MainWindow(QMainWindow):
         design_json = result.get("design_json", "{}")
         self.version_map[version_id] = (version_number, design_json)
         self._load_versions()
-        self._load_sessions()
 
     def _on_refine_error(self, error_msg):
         self.input_field.setEnabled(True)
