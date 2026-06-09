@@ -276,10 +276,25 @@ class MainWindow(QMainWindow):
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
 
-        # 对话标题
-        self.chat_title = QLabel(" 选择一个项目开始")
-        self.chat_title.setStyleSheet(f"background:{PALETTE['sidebar']}; padding:10px 16px; font-size:13px; border-bottom:1px solid {PALETTE['border']};")
-        center_layout.addWidget(self.chat_title)
+        # 会话标题栏（可切换 + 新建）
+        self.session_bar = QWidget()
+        self.session_bar.setStyleSheet(f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};")
+        sb_layout = QHBoxLayout(self.session_bar)
+        sb_layout.setContentsMargins(12, 6, 12, 6)
+        sb_layout.setSpacing(4)
+
+        self.session_tabs = QHBoxLayout()
+        self.session_tabs.setSpacing(4)
+        sb_layout.addLayout(self.session_tabs)
+        sb_layout.addStretch()
+
+        self.btn_add_session = QPushButton("+ 新方案")
+        self.btn_add_session.setStyleSheet(f"font-size:11px; padding:4px 10px;")
+        self.btn_add_session.clicked.connect(self._new_session_dialog)
+        self.btn_add_session.setVisible(False)
+        sb_layout.addWidget(self.btn_add_session)
+
+        center_layout.addWidget(self.session_bar)
 
         # 对话记录
         self.chat_area = QTextEdit()
@@ -360,7 +375,7 @@ class MainWindow(QMainWindow):
             return
         self.current_project_id = item.data(Qt.UserRole)
         self.current_session_id = None
-        self.chat_title.setText(f"  {item.text()}")
+        # chat_title removed, handled by session tabs
         self._load_sessions()
         self._load_versions()
 
@@ -379,31 +394,64 @@ class MainWindow(QMainWindow):
             return
         try:
             sessions = self.api.list_sessions(self.current_project_id)
+            self._render_session_tabs(sessions)
             # 自动选中第一个会话
             if sessions:
-                self.current_session_id = sessions[0]["id"]
-                self.current_session_title = sessions[0]["title"]
-                self.chat_title.setText(f"  {self.current_session_title}")
-                self._load_messages()
-                self._load_versions()
+                self._switch_session(sessions[0]["id"], sessions[0]["title"])
         except Exception as e:
             self._show_error(f"加载会话失败: {e}")
+
+    def _render_session_tabs(self, sessions):
+        # Clear tabs
+        for i in reversed(range(self.session_tabs.count())):
+            item = self.session_tabs.itemAt(i)
+            if item.widget():
+                item.widget().deleteLater()
+        # Add tab buttons
+        for s in sessions:
+            btn = QPushButton(s["title"])
+            btn.setCheckable(True)
+            btn.setStyleSheet(f"""
+                QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['t2']}; border:1px solid {PALETTE['border']};
+                    padding:4px 12px; border-radius:4px; font-size:12px; }}
+                QPushButton:hover {{ border-color:{PALETTE['primary']}; color:{PALETTE['tx']}; }}
+                QPushButton:checked {{ background:{PALETTE['primary_dim']}; color:{PALETTE['tx']}; border-color:{PALETTE['primary']}; }}
+            """)
+            btn.clicked.connect(lambda checked, sid=s["id"], title=s["title"]: self._switch_session(sid, title))
+            self.session_tabs.addWidget(btn)
+        self.session_tabs.addStretch()
+        self.btn_add_session.setVisible(True)
+
+    def _switch_session(self, session_id, title):
+        self.current_session_id = session_id
+        self.current_session_title = title
+        # Highlight the active tab
+        for i in range(self.session_tabs.count()):
+            item = self.session_tabs.itemAt(i)
+            if item.widget() and isinstance(item.widget(), QPushButton):
+                btn = item.widget()
+                btn.setChecked(btn.text() == title)
+        self._load_messages()
+        self._load_versions()
 
     def _on_session_selected(self, item):
         pass  # 会话列表已移除，改为自动选中首个会话
 
-    def _new_session(self):
+    def _new_session_dialog(self):
         if not self.current_project_id:
-            self._show_error("请先选择一个项目")
+            return
+        from PySide6.QtWidgets import QInputDialog
+        sessions = self.api.list_sessions(self.current_project_id)
+        default = f"方案{len(sessions) + 1}"
+        name, ok = QInputDialog.getText(self, "新建方案", "方案名称:", text=default)
+        if ok and name.strip():
+            self._new_session(name.strip())
+
+    def _new_session(self, title):
+        if not self.current_project_id:
             return
         try:
-            # Count existing sessions to determine number
-            sessions = self.api.list_sessions(self.current_project_id)
-            idx = len(sessions) + 1
-            title = f"方案{idx}"
             self.api.create_session(self.current_project_id, title)
-            # Auto-select the new session
-            self.current_session_id = None
             self._load_sessions()
         except Exception as e:
             self._show_error(f"创建会话失败: {e}")
