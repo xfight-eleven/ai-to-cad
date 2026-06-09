@@ -6,7 +6,7 @@
 <title>AI CAD — 工业厂房设计助手</title>
 <style>
 :root {
-  --bg: #141517; --pn: #1E1F23; --sb: #1A1B1E;
+  --bg: #141517; --pn: #1E1F23; --sb: #1A1B1E; --in: #25262B;
   --tx: #E5E5EA; --t2: #98989E; --t3: #636368;
   --br: #4F6EF7; --bd: #2C2D31; --ok: #4CAF50; --er: #FF5252;
 }
@@ -20,17 +20,50 @@ a { color: var(--br); text-decoration: none; }
 
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 24px; height: 52px; background: var(--sb); border-bottom: 1px solid var(--bd);
+  padding: 0 24px; height: 48px; background: var(--sb); border-bottom: 1px solid var(--bd);
 }
-.topbar-left { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
-.topbar-left svg { width: 24px; height: 24px; }
-.status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--t2); }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.topbar-left { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; }
+.topbar-left svg { width: 22px; height: 22px; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--t2); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.btn-admin {
+  padding: 5px 14px; background: var(--br); color: #fff; border: none;
+  border-radius: 5px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-admin:hover { opacity: .9; }
+.user-info { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--t2); }
+.btn-logout {
+  padding: 3px 10px; border: 1px solid var(--bd); background: none; color: var(--t2);
+  border-radius: 4px; font-size: 11px; cursor: pointer;
+}
+.btn-logout:hover { color: var(--er); }
 
-.main {
-  flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px;
+/* Login */
+.login-wrap {
+  flex: 1; display: flex; align-items: center; justify-content: center;
 }
-.cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; max-width: 700px; }
+.login-box {
+  background: var(--pn); padding: 40px; border-radius: 12px; width: 400px;
+  border: 1px solid var(--bd); text-align: center;
+}
+.login-box h1 { font-size: 22px; margin-bottom: 4px; }
+.login-box .sub { color: var(--t2); font-size: 14px; margin-bottom: 28px; }
+.login-box label { display: block; text-align: left; font-size: 13px; color: var(--t2); margin-bottom: 6px; }
+.login-box input {
+  width: 100%; background: var(--in); border: 1px solid var(--bd); color: var(--tx);
+  padding: 10px 12px; border-radius: 6px; font-size: 14px; margin-bottom: 16px;
+}
+.login-box input:focus { outline: none; border-color: var(--br); }
+.login-box button {
+  width: 100%; background: var(--br); color: #fff; border: none; padding: 12px;
+  border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.login-err { color: var(--er); font-size: 13px; margin-bottom: 12px; min-height: 20px; }
+
+/* After login */
+.main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+.cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
 .card {
   background: var(--pn); border: 1px solid var(--bd); border-radius: 10px;
   padding: 28px 24px; width: 260px; color: var(--tx);
@@ -41,10 +74,11 @@ a { color: var(--br); text-decoration: none; }
 .card h3 { font-size: 16px; margin-bottom: 6px; }
 .card p { font-size: 13px; color: var(--t2); line-height: 1.5; }
 
-.footer {
-  padding: 16px 24px; text-align: center; color: var(--t3); font-size: 12px;
-  border-top: 1px solid var(--bd);
-}
+.welcome-text { text-align: center; margin-bottom: 32px; }
+.welcome-text h2 { font-size: 22px; margin-bottom: 4px; }
+.welcome-text span { color: var(--t2); font-size: 14px; }
+
+.hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -58,32 +92,44 @@ a { color: var(--br); text-decoration: none; }
     </svg>
     AI CAD 设计助手
   </div>
-  <div class="status">
-    <div class="status-dot" id="statusDot"></div>
-    <span id="statusText">检查中…</span>
+  <div class="topbar-right">
+    <div class="status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">检查中…</span>
+    </div>
+    <a href="/admin" class="btn-admin hidden" id="btnAdmin">管理后台</a>
+    <a href="/docs" class="hidden" id="btnDocs" style="font-size:12px;color:var(--t2)">API 文档</a>
+    <div class="user-info hidden" id="userInfo">
+      <span id="userName"></span>
+      <button class="btn-logout" onclick="logout()">退出</button>
+    </div>
   </div>
 </div>
 
-<div class="main">
-  <div class="cards">
-    <a href="/admin" class="card">
-      <div class="card-icon">⚙️</div>
-      <h3>管理后台</h3>
-      <p>用户管理、设计边界模板、大模型配置、服务器设置</p>
-    </a>
-    <a href="/docs" class="card">
-      <div class="card-icon">📖</div>
-      <h3>API 文档</h3>
-      <p>Swagger 接口文档，在线调试所有 API 接口</p>
-    </a>
+<!-- 登录 -->
+<div id="loginPage" class="login-wrap">
+  <div class="login-box">
+    <h1>欢迎使用 AI CAD</h1>
+    <p class="sub">工业厂房智能设计平台</p>
+    <div class="login-err" id="loginErr"></div>
+    <label>用户名</label>
+    <input type="text" id="loginUser" placeholder="输入用户名" value="admin">
+    <label>密码</label>
+    <input type="password" id="loginPass" placeholder="输入密码" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">登 录</button>
   </div>
 </div>
 
-<div class="footer">
-  AI CAD v1.0 &nbsp;·&nbsp; C/S 架构 &nbsp;·&nbsp; 设计师请使用桌面客户端
+<!-- 登录后 -->
+<div id="mainPage" class="main hidden">
+  <div id="mainContent"></div>
 </div>
 
 <script>
+const BASE = window.location.origin.replace(/\/+$/, '');
+let token = '';
+
+// 健康检查
 fetch('/api/health').then(r => r.json()).then(d => {
   document.getElementById('statusDot').style.background = '#4CAF50';
   document.getElementById('statusText').textContent = '服务正常 · v' + d.version;
@@ -91,6 +137,66 @@ fetch('/api/health').then(r => r.json()).then(d => {
   document.getElementById('statusDot').style.background = '#FF5252';
   document.getElementById('statusText').textContent = '服务异常';
 });
+
+async function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value.trim();
+  if (!u || !p) return;
+  try {
+    const resp = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.detail || '登录失败');
+    token = d.access_token;
+    showMain(d.user);
+  } catch(e) {
+    document.getElementById('loginErr').textContent = e.message;
+  }
+}
+
+function showMain(user) {
+  document.getElementById('loginPage').classList.add('hidden');
+  document.getElementById('mainPage').classList.remove('hidden');
+  document.getElementById('userInfo').classList.remove('hidden');
+  document.getElementById('userName').textContent = user.display_name;
+
+  const isAdmin = user.role === 'admin';
+  document.getElementById('btnAdmin').classList.toggle('hidden', !isAdmin);
+  document.getElementById('btnDocs').classList.toggle('hidden', !isAdmin);
+
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = `
+    <div class="welcome-text">
+      <h2>你好，${user.display_name}</h2>
+      <span>${isAdmin ? '系统管理员 — 通过顶部管理后台进行系统配置' : '请使用 AI CAD 桌面客户端进行设计工作'}</span>
+    </div>
+    ${isAdmin ? `
+    <div class="cards">
+      <a href="/admin" class="card">
+        <div class="card-icon">⚙️</div>
+        <h3>管理后台</h3>
+        <p>用户管理、设计边界、大模型配置、项目记录、服务器设置</p>
+      </a>
+      <a href="/docs" class="card">
+        <div class="card-icon">📖</div>
+        <h3>API 文档</h3>
+        <p>Swagger 接口文档，在线调试所有 API</p>
+      </a>
+    </div>
+    ` : ''}
+  `;
+}
+
+function logout() {
+  token = '';
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('mainPage').classList.add('hidden');
+  document.getElementById('userInfo').classList.add('hidden');
+  document.getElementById('btnAdmin').classList.add('hidden');
+  document.getElementById('btnDocs').classList.add('hidden');
+}
 </script>
 </body>
 </html>
