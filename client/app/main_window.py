@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QLabel, QPushButton, QTextEdit,
     QLineEdit, QDialog, QFormLayout, QCheckBox, QMessageBox,
     QComboBox, QTreeWidget, QTreeWidgetItem, QFrame,
-    QApplication, QMenu, QGroupBox, QScrollArea, QSizePolicy,
+    QApplication, QMenu, QInputDialog, QGroupBox, QScrollArea, QSizePolicy,
     QHeaderView, QStyledItemDelegate,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
@@ -613,9 +613,8 @@ class MainWindow(QMainWindow):
         """右键菜单。"""
         menu = QMenu(self)
         rename_action = menu.addAction("重命名")
-        action = menu.exec(btn.mapToGlobal(pos))
-        if action == rename_action:
-            self._rename_session(sid, btn)
+        rename_action.triggered.connect(lambda: self._rename_session(sid, btn))
+        menu.popup(btn.mapToGlobal(pos))
 
     def _rename_session(self, sid, btn):
         """右键菜单：重命名会话。"""
