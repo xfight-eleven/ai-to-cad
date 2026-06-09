@@ -845,7 +845,7 @@ function filterRefs(q) {
 function renderBoundaries(filter) {
   const el = document.getElementById('boundList');
   const items = filter
-    ? boundariesList.filter(b => b.name.includes(filter) || (b.description && b.description.includes(filter)))
+    ? boundariesList.filter(b => b.name.includes(filter) || (b.descriptionription && b.description.includes(filter)))
     : boundariesList;
   el.innerHTML = items.map(b => {
     const checked = selectedBoundaries.includes(b.id);
@@ -853,7 +853,7 @@ function renderBoundaries(filter) {
       <input type="checkbox" ${checked?'checked':''} onchange="event.stopPropagation();toggleBound('${b.id}')">
       <div class="item-row-info">
         <div class="item-row-title">${b.name}</div>
-        <div class="item-row-desc">${b.desc}</div>
+        <div class="item-row-desc">${b.description}</div>
       </div>
       <span class="sel-count" style="${checked?'':'visibility:hidden'}">已选</span>
     </div>`;
