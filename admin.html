@@ -126,6 +126,7 @@ tr:last-child td { border-bottom:none; }
       <a href="#" data-tab="boundaries">设计边界</a>
       <a href="#" data-tab="llm">大模型配置</a>
       <a href="#" data-tab="server">服务器配置</a>
+      <a href="#" data-tab="projects">项目记录</a>
     </nav>
     <div class="logout">
       当前: <span id="currentUser"></span> &nbsp; <a href="#" onclick="logout()">退出</a>
@@ -195,6 +196,7 @@ function showTab(name) {
   else if (name === 'boundaries') renderBoundaries(m);
   else if (name === 'llm') renderLlm(m);
   else if (name === 'server') renderServer(m);
+  else if (name === 'projects') renderProjects(m);
 }
 
 // ── Modal ──
@@ -461,6 +463,93 @@ function editServer() {
       });
   });
 }
+
+// ── 项目记录 ──
+let allUsers = [];
+async function renderProjects(el) {
+  try { allUsers = await req('GET', '/api/admin/users'); } catch(e) { allUsers = []; }
+  const projects = await req('GET', '/api/admin/projects');
+  const rows = projects.map(p => {
+    const owner = allUsers.find(u => u.id === p.owner_id);
+    return `<tr>
+      <td>${p.title}</td>
+      <td>${p.owner_name}</td>
+      <td>${p.session_count}</td>
+      <td>${new Date(p.updated_at).toLocaleString()}</td>
+      <td>
+        <button class="btn btn-sm" onclick="viewProject('${p.id}','${p.title.replace(/'/g,"\'")}')">查看</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <h1>项目记录</h1>
+    <div class="panel">
+      <div class="panel-header"><h3>所有用户项目 (${projects.length} 个)</h3></div>
+      <table><thead><tr><th>项目名称</th><th>创建者</th><th>会话数</th><th>最后更新</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>
+    <div id="projDetail"></div>`;
+}
+
+async function viewProject(pid, title) {
+  const detail = document.getElementById('projDetail');
+  detail.innerHTML = '<p style="padding:20px;color:var(--t3)">加载中…</p>';
+  const sessions = await req('GET', '/api/admin/projects/' + pid + '/sessions');
+  
+  let html = '<h2 style="margin-top:32px">' + title + ' — 会话列表</h2>';
+  for (const s of sessions) {
+    html += '<div class="panel" style="margin-bottom:12px">';
+    html += '<div class="panel-header"><h3>' + s.title + ' <span style="font-weight:400;color:var(--t2);font-size:12px">' + s.version_count + ' 个版本 · ' + s.message_count + ' 条对话</span></h3>';
+    html += '<button class="btn btn-sm btn-pri" onclick="viewSession('' + s.id + '')">查看详情</button></div>';
+    if (s.last_message) {
+      html += '<div style="padding:12px 20px;color:var(--t2);font-size:13px">最后消息: ' + s.last_message + '</div>';
+    }
+    html += '</div>';
+  }
+  if (sessions.length === 0) {
+    html += '<p style="color:var(--t3)">暂无会话</p>';
+  }
+  html += '<div id="sessionDetail"></div>';
+  detail.innerHTML = html;
+}
+
+async function viewSession(sid) {
+  const detail = document.getElementById('sessionDetail');
+  detail.innerHTML = '<p style="padding:20px;color:var(--t3)">加载中…</p>';
+  const data = await req('GET', '/api/admin/sessions/' + sid + '/detail');
+  
+  // 对话记录
+  let msgHtml = '<div class="panel" style="margin-bottom:12px"><div class="panel-header"><h3>对话记录 (' + data.messages.length + ' 条)</h3></div>';
+  msgHtml += '<div style="padding:12px 20px;max-height:400px;overflow-y:auto">';
+  for (const m of data.messages) {
+    const roleLabel = m.role === 'user' ? '用户' : 'AI';
+    const roleColor = m.role === 'user' ? 'var(--br)' : '#F9A825';
+    msgHtml += '<div style="margin-bottom:12px;padding:8px 12px;background:rgba(229,229,234,0.03);border-radius:6px">';
+    msgHtml += '<span style="color:' + roleColor + ';font-weight:600;font-size:12px">' + roleLabel + '</span> ';
+    msgHtml += '<span style="color:var(--t3);font-size:11px">' + new Date(m.created_at).toLocaleString() + '</span><br>';
+    msgHtml += '<span style="font-size:13px">' + m.content + '</span></div>';
+  }
+  msgHtml += '</div></div>';
+
+  // 版本 + DWG 下载
+  let verHtml = '<div class="panel"><div class="panel-header"><h3>版本记录 (' + data.versions.length + ' 个)</h3></div>';
+  verHtml += '<table><thead><tr><th>版本</th><th>描述</th><th>日期</th><th>操作</th></tr></thead><tbody>';
+  for (const v of data.versions) {
+    verHtml += '<tr>';
+    verHtml += '<td>v' + v.number + '</td>';
+    verHtml += '<td>' + (v.description || '—') + '</td>';
+    verHtml += '<td>' + new Date(v.created_at).toLocaleString() + '</td>';
+    verHtml += '<td>';
+    verHtml += '<button class="btn btn-sm" onclick="window.open(BASE+\'/api/versions/' + v.id + '\',\'_blank\')">JSON</button> ';
+    verHtml += '<a href="' + BASE + '/api/versions/' + v.id + '/dwg" class="btn btn-sm btn-ok">下载 DWG</a>';
+    verHtml += '</td></tr>';
+  }
+  verHtml += '</tbody></table></div>';
+
+  detail.innerHTML = msgHtml + verHtml;
+}
+
 </script>
 </body>
 </html>
