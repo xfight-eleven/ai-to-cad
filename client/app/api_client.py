@@ -28,7 +28,8 @@ class APIClient:
         return self._user
 
     def get_me(self) -> dict:
-        return self._get("/api/auth/me")
+        self._user = self._get("/api/auth/me")
+        return self._user
 
     @property
     def token(self) -> Optional[str]:
