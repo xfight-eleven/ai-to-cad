@@ -94,6 +94,25 @@ def get_session_detail(session_id: str, user: User = Depends(get_current_user), 
     )
 
 
+
+
+@router.patch("/sessions/{session_id}")
+def rename_session(
+    session_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+    db: DbSession = Depends(get_db),
+):
+    """重命名会话。"""
+    session = _verify_session(session_id, user, db)
+    new_title = data.get("title", "").strip()
+    if not new_title:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "名称不能为空")
+    session.title = new_title
+    db.commit()
+    return {"message": "已重命名", "session_id": session_id, "title": new_title}
+
+
 # ── 版本管理 ──
 
 

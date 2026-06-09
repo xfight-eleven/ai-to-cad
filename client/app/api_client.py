@@ -74,6 +74,9 @@ class APIClient:
     def get_session(self, session_id: str) -> dict:
         return self._get(f"/api/sessions/{session_id}")
 
+    def rename_session(self, session_id: str, title: str) -> dict:
+        return self._patch(f"/api/sessions/{session_id}", {"title": title})
+
     # ── 设计生成 ──
 
     def generate(self, session_id: str, prompt: str) -> dict:
@@ -145,6 +148,14 @@ class APIClient:
     def _post(self, path: str, data: dict) -> dict:
         resp = httpx.post(f"{self.base_url}{path}", json=data,
                           headers=self._headers(), trust_env=False)
+        if resp.status_code >= 400:
+            detail = resp.json().get("detail", f"HTTP {resp.status_code}")
+            raise RuntimeError(detail)
+        return resp.json()
+
+    def _patch(self, path: str, data: dict) -> dict:
+        resp = httpx.patch(f"{self.base_url}{path}", json=data,
+                           headers=self._headers(), trust_env=False)
         if resp.status_code >= 400:
             detail = resp.json().get("detail", f"HTTP {resp.status_code}")
             raise RuntimeError(detail)

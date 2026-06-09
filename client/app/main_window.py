@@ -420,6 +420,8 @@ class MainWindow(QMainWindow):
                 " QPushButton:checked { background:" + PALETTE["primary_dim"] + "; color:" + PALETTE["text"] + "; border-color:" + PALETTE["primary"] + "; }"
             )
             btn.clicked.connect(lambda checked, sid=s["id"], title=s["title"]: self._switch_session(sid, title))
+            btn.installEventFilter(self)
+            btn.setProperty("session_id", s["id"])
             self.session_tabs.addWidget(btn)
         self.btn_add_session.setVisible(True)
 
@@ -607,6 +609,24 @@ class MainWindow(QMainWindow):
     def _logout(self):
         clear_credentials()
         self.close()
+
+    def eventFilter(self, obj, event):
+        """双击标签改名。"""
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.MouseButtonDblClick:
+            sid = obj.property("session_id")
+            if sid:
+                title, ok = QInputDialog.getText(self, "重命名", "新名称:", text=obj.text())
+                if ok and title.strip():
+                    try:
+                        self.api.rename_session(sid, title.strip())
+                        obj.setText(title.strip())
+                        if self.current_session_id == sid:
+                            self.current_session_title = title.strip()
+                    except Exception as e:
+                        QMessageBox.warning(self, "错误", str(e))
+                return True
+        return super().eventFilter(obj, event)
 
     def _show_error(self, msg: str):
         QMessageBox.warning(self, "错误", msg)
