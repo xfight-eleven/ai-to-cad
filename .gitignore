@@ -1,0 +1,12 @@
+.venv
+*.pyc
+__pycache__
+*.db
+*.dwg
+.env
+bridge/.token_cache
+client/__pycache__
+.DS_Store
+.claude/
+*.db-shm
+*.db-wal

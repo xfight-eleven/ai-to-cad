@@ -1,0 +1,636 @@
+"""主窗口 — 桌面客户端核心界面。
+
+左侧：项目列表 + 会话切换
+中央：AI 对话面板 + 输入区
+右侧：版本列表 + 推 CAD 按钮
+"""
+
+import json
+import os
+import re
+import tempfile
+from pathlib import Path
+from datetime import datetime
+
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
+    QListWidget, QListWidgetItem, QLabel, QPushButton, QTextEdit,
+    QLineEdit, QDialog, QFormLayout, QCheckBox, QMessageBox,
+    QComboBox, QTreeWidget, QTreeWidgetItem, QFrame,
+    QApplication, QMenu, QGroupBox, QScrollArea, QSizePolicy,
+    QHeaderView, QStyledItemDelegate,
+)
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
+from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor
+
+from app.api_client import APIClient
+from app.config_manager import load_config, save_credentials, clear_credentials, get_server_url
+from app.cad_engine import CadEngine, HAS_PYWIN32
+
+# ── 暗色主题调色板 ──
+PALETTE = {
+    "bg":           "#141517",
+    "sidebar":      "#1A1B1E",
+    "panel":        "#1E1F23",
+    "input_bg":     "#25262B",
+    "text":         "#E5E5EA",
+    "text_dim":     "#98989E",
+    "text_faint":   "#636368",
+    "primary":      "#4F6EF7",
+    "primary_dim":  "rgba(79,110,247,0.15)",
+    "accent":       "#F9A825",
+    "border":       "#2C2D31",
+    "danger":       "#FF5252",
+    "success":      "#4CAF50",
+    "user_bubble":  "rgba(79,110,247,0.12)",
+    "ai_bubble":    "rgba(229,229,234,0.05)",
+}
+
+
+class RefineWorker(QThread):
+    """后台线程：调用 AI 生成/精炼。"""
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, api: APIClient, session_id: str, prompt: str):
+        super().__init__()
+        self.api = api
+        self.session_id = session_id
+        self.prompt = prompt
+
+    def run(self):
+        try:
+            result = self.api.refine(self.session_id, self.prompt)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class DWGUploadWorker(QThread):
+    """后台线程：上传 DWG 到服务器。"""
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, api: APIClient, version_id: str, file_path: str):
+        super().__init__()
+        self.api = api
+        self.version_id = version_id
+        self.file_path = file_path
+
+    def run(self):
+        try:
+            result = self.api.upload_dwg(self.version_id, self.file_path)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class SettingsDialog(QDialog):
+    """服务器设置对话框。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("服务器设置")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(self._style())
+
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("http://192.168.10.xxx:3000")
+        self.url_input.setText(get_server_url())
+        self.status_label = QLabel("")
+
+        btn_test = QPushButton("测试连接")
+        btn_test.clicked.connect(self._test)
+        btn_save = QPushButton("保存")
+        btn_save.setStyleSheet(f"background:{PALETTE['primary']};color:#fff;padding:6px 20px;")
+        btn_save.clicked.connect(self._save)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        layout.addWidget(QLabel("服务器地址"))
+        layout.addWidget(self.url_input)
+        layout.addWidget(self.status_label)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(btn_test)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_save)
+        layout.addLayout(btn_row)
+
+    def _test(self):
+        url = self.url_input.text().strip()
+        api = APIClient(base_url=url)
+        if api.health():
+            self.status_label.setText("[OK] 连接成功")
+            self.status_label.setStyleSheet(f"color:{PALETTE['success']};")
+        else:
+            self.status_label.setText("[X] 连接失败")
+            self.status_label.setStyleSheet(f"color:{PALETTE['danger']};")
+
+    def _save(self):
+        url = self.url_input.text().strip()
+        config = load_config()
+        config["server_url"] = url
+        from app.config_manager import save_config
+        save_config(config)
+        self.accept()
+
+    def _style(self):
+        return f"""
+        QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
+        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; padding:8px; border-radius:4px; }}
+        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; padding:8px 16px; border-radius:4px; }}
+        QLabel {{ color:{PALETTE['text']}; }}
+        """
+
+
+class MainWindow(QMainWindow):
+    """桌面客户端主窗口。"""
+
+    def __init__(self, api: APIClient):
+        super().__init__()
+        self.api = api
+        self.current_project_id = None
+        self.current_session_id = None
+        self.current_session_title = "方案一"
+        self.cad_engine = None
+        self.worker = None
+        self.dwg_worker = None
+        self.version_map = {}  # version_id -> (number, design_json)
+
+        self.setWindowTitle("AI CAD — 工业厂房设计助手")
+        self.setMinimumSize(1280, 800)
+        self.resize(1400, 880)
+        self.setStyleSheet(self._global_style())
+
+        self._build_menu()
+        self._build_ui()
+        self._load_projects()
+
+    # ── 全局样式 ──
+
+    def _global_style(self):
+        return f"""
+        QMainWindow {{ background:{PALETTE['bg']}; }}
+        QSplitter::handle {{ background:{PALETTE['border']}; width:1px; }}
+        QScrollBar:vertical {{ background:{PALETTE['bg']}; width:6px; }}
+        QScrollBar::handle:vertical {{ background:{PALETTE['text_faint']}; border-radius:3px; min-height:30px; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
+        QTreeWidget {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:none;
+            font-size:13px; }}
+        QTreeWidget::item {{ padding:6px 8px; }}
+        QTreeWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
+        QTreeWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
+        QTreeWidget QHeaderView::section {{ background:{PALETTE['sidebar']};
+            color:{PALETTE['text_dim']}; border:none; padding:6px 8px; font-size:11px; }}
+        QListWidget {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:none;
+            font-size:13px; outline:none; }}
+        QListWidget::item {{ padding:8px 12px; }}
+        QListWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
+        QListWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
+        QTextEdit {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:1px solid {PALETTE['border']};
+            border-radius:6px; padding:8px; font-size:13px; }}
+        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; border-radius:6px; padding:10px; font-size:13px; }}
+        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; border-radius:4px; padding:6px 14px; font-size:12px; }}
+        QPushButton:hover {{ border-color:{PALETTE['primary']}; }}
+        QComboBox {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; border-radius:4px; padding:6px; font-size:12px; }}
+        QGroupBox {{ color:{PALETTE['text_dim']}; border:1px solid {PALETTE['border']};
+            border-radius:6px; margin-top:12px; padding-top:12px; font-size:12px; }}
+        QCheckBox {{ color:{PALETTE['text']}; font-size:12px; }}
+        QLabel {{ color:{PALETTE['text']}; }}
+        """
+
+    # ── 菜单栏 ──
+
+    def _build_menu(self):
+        mb = self.menuBar()
+        mb.setStyleSheet(f"background:{PALETTE['sidebar']}; color:{PALETTE['text']}; border:none;")
+        file_menu = mb.addMenu("文件")
+        file_menu.addAction("服务器设置", self._show_settings)
+        file_menu.addAction("退出", self.close)
+        help_menu = mb.addMenu("帮助")
+        help_menu.addAction("关于", lambda: QMessageBox.about(self, "关于", "AI CAD 工业厂房设计助手 v1.0"))
+
+    # ── 主 UI ──
+
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        hlayout = QHBoxLayout(central)
+        hlayout.setContentsMargins(0, 0, 0, 0)
+        hlayout.setSpacing(0)
+
+        splitter = QSplitter(Qt.Horizontal)
+
+        # ── 左侧面板：项目 + 会话 ──
+        left_panel = QWidget()
+        left_panel.setFixedWidth(260)
+        left_panel.setStyleSheet(f"background:{PALETTE['sidebar']};")
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setSpacing(8)
+
+        # 用户信息
+        user_row = QHBoxLayout()
+        user_label = QLabel(f"  {self.api.user.get('display_name', '用户')}")
+        user_label.setStyleSheet("font-size:14px; font-weight:600;")
+        user_row.addWidget(user_label)
+        user_row.addStretch()
+        btn_logout = QPushButton("退出")
+        btn_logout.setStyleSheet("padding:4px 10px; font-size:11px;")
+        btn_logout.clicked.connect(self._logout)
+        user_row.addWidget(btn_logout)
+        left_layout.addLayout(user_row)
+
+        left_layout.addWidget(self._sep())
+
+        # 标题 + 新建
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("项目列表"))
+        btn_new = QPushButton("+ 新建")
+        btn_new.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; padding:4px 12px; font-size:11px;")
+        btn_new.clicked.connect(self._new_project)
+        title_row.addStretch()
+        title_row.addWidget(btn_new)
+        left_layout.addLayout(title_row)
+
+        self.project_list = QListWidget()
+        self.project_list.currentItemChanged.connect(self._on_project_selected)
+        left_layout.addWidget(self.project_list)
+
+        left_layout.addWidget(QLabel("会话列表"))
+        self.session_list = QListWidget()
+        self.session_list.currentItemChanged.connect(self._on_session_selected)
+        left_layout.addWidget(self.session_list)
+
+        btn_session = QPushButton("+ 新会话")
+        btn_session.clicked.connect(self._new_session)
+        left_layout.addWidget(btn_session)
+
+        left_layout.addStretch()
+
+        splitter.addWidget(left_panel)
+
+        # ── 中央：对话区 ──
+        center_panel = QWidget()
+        center_layout = QVBoxLayout(center_panel)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+
+        # 对话标题
+        self.chat_title = QLabel(" 选择一个项目开始")
+        self.chat_title.setStyleSheet(f"background:{PALETTE['sidebar']}; padding:10px 16px; font-size:13px; border-bottom:1px solid {PALETTE['border']};")
+        center_layout.addWidget(self.chat_title)
+
+        # 对话记录
+        self.chat_area = QTextEdit()
+        self.chat_area.setReadOnly(True)
+        self.chat_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        center_layout.addWidget(self.chat_area, 1)
+
+        # 输入区
+        input_frame = QFrame()
+        input_frame.setStyleSheet(f"background:{PALETTE['sidebar']}; border-top:1px solid {PALETTE['border']};")
+        input_layout = QHBoxLayout(input_frame)
+        input_layout.setContentsMargins(12, 8, 12, 8)
+
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("描述你的设计需求… (Enter 发送)")
+        self.input_field.returnPressed.connect(self._send_message)
+        input_layout.addWidget(self.input_field)
+
+        btn_send = QPushButton("发送")
+        btn_send.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; padding:8px 18px; font-weight:600;")
+        btn_send.clicked.connect(self._send_message)
+        input_layout.addWidget(btn_send)
+
+        center_layout.addWidget(input_frame)
+        splitter.addWidget(center_panel)
+
+        # ── 右侧：版本面板 ──
+        right_panel = QWidget()
+        right_panel.setFixedWidth(280)
+        right_panel.setStyleSheet(f"background:{PALETTE['sidebar']};")
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(12, 12, 12, 12)
+        right_layout.setSpacing(8)
+
+        version_title = QLabel("版本记录")
+        version_title.setStyleSheet("font-size:14px; font-weight:600;")
+        right_layout.addWidget(version_title)
+        right_layout.addWidget(self._sep())
+
+        self.version_tree = QTreeWidget()
+        self.version_tree.setHeaderLabels(["版本", "操作"])
+        self.version_tree.setColumnWidth(0, 130)
+        self.version_tree.setColumnWidth(1, 120)
+        self.version_tree.header().setStretchLastSection(True)
+        right_layout.addWidget(self.version_tree)
+
+        btn_refresh = QPushButton("刷新版本")
+        btn_refresh.clicked.connect(self._load_versions)
+        right_layout.addWidget(btn_refresh)
+
+        splitter.addWidget(right_panel)
+
+        # 比例设置
+        splitter.setSizes([260, 860, 280])
+        hlayout.addWidget(splitter)
+
+    def _sep(self):
+        f = QFrame()
+        f.setFrameShape(QFrame.HLine)
+        f.setStyleSheet(f"color:{PALETTE['border']};")
+        return f
+
+    # ── 项目列表 ──
+
+    def _load_projects(self):
+        self.project_list.clear()
+        try:
+            projects = self.api.list_projects()
+            for p in projects:
+                item = QListWidgetItem(p["title"])
+                item.setData(Qt.UserRole, p["id"])
+                self.project_list.addItem(item)
+        except Exception as e:
+            self._show_error(f"加载项目失败: {e}")
+
+    def _on_project_selected(self, item):
+        if not item:
+            return
+        self.current_project_id = item.data(Qt.UserRole)
+        self.current_session_id = None
+        self.chat_title.setText(f"  {item.text()}")
+        self._load_sessions()
+        self._load_versions()
+
+    def _new_project(self):
+        dlg = NewProjectDialog(self.api, self)
+        if dlg.exec() == QDialog.Accepted:
+            self._load_projects()
+
+    # ── 会话 ──
+
+    def _load_sessions(self):
+        self.session_list.clear()
+        if not self.current_project_id:
+            return
+        try:
+            sessions = self.api.list_sessions(self.current_project_id)
+            for s in sessions:
+                text = f"{s['title']} (v{s.get('version_count', 0)})"
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, s["id"])
+                self.session_list.addItem(item)
+        except Exception as e:
+            self._show_error(f"加载会话失败: {e}")
+
+    def _on_session_selected(self, item):
+        if not item:
+            return
+        self.current_session_id = item.data(Qt.UserRole)
+        self.current_session_title = item.text()
+        self._load_messages()
+        self._load_versions()
+
+    def _new_session(self):
+        if not self.current_project_id:
+            self._show_error("请先选择一个项目")
+            return
+        try:
+            idx = self.session_list.count() + 1
+            title = f"方案{idx}"
+            s = self.api.create_session(self.current_project_id, title)
+            self._load_sessions()
+        except Exception as e:
+            self._show_error(f"创建会话失败: {e}")
+
+    # ── 对话 ──
+
+    def _load_messages(self):
+        self.chat_area.clear()
+        if not self.current_session_id:
+            return
+        try:
+            detail = self.api.get_session(self.current_session_id)
+            for m in detail.get("messages", []):
+                self._append_message(m["role"], m["content"], m.get("version_id"))
+        except Exception as e:
+            self._show_error(f"加载对话失败: {e}")
+
+    def _append_message(self, role: str, content: str, version_id: str = None):
+        color = PALETTE["primary"] if role == "user" else PALETTE["accent"]
+        prefix = "你" if role == "user" else "AI"
+        timestamp = datetime.now().strftime("%H:%M")
+        html = f'<div style="margin:8px 0;"><span style="color:{color};font-weight:600;">{prefix}</span>'
+        html += f' <span style="color:{PALETTE["text_faint"]};font-size:11px;">{timestamp}</span><br>'
+        html += f'{content}</div>'
+        if version_id:
+            html += f'<div style="color:{PALETTE["text_faint"]};font-size:11px;">版本: {version_id[:8]}</div>'
+        self.chat_area.insertHtml(html)
+
+    def _send_message(self):
+        prompt = self.input_field.text().strip()
+        if not prompt:
+            return
+        if not self.current_session_id:
+            self._show_error("请先选择一个项目并创建会话")
+            return
+
+        self._append_message("user", prompt)
+        self.input_field.clear()
+        self.input_field.setEnabled(False)
+        QApplication.processEvents()
+
+        self.worker = RefineWorker(self.api, self.current_session_id, prompt)
+        self.worker.finished.connect(self._on_refine_done)
+        self.worker.error.connect(self._on_refine_error)
+        self.worker.start()
+
+    def _on_refine_done(self, result):
+        self.input_field.setEnabled(True)
+        version_id = result.get("version_id", "")
+        version_number = result.get("version_number", 0)
+        description = result.get("description", "")
+
+        vers_text = f"✅ v{version_number} 已生成"
+        if description:
+            vers_text += f" — {description}"
+        self._append_message("assistant", vers_text, version_id)
+
+        # 更新版本树
+        design_json = result.get("design_json", "{}")
+        self.version_map[version_id] = (version_number, design_json)
+        self._load_versions()
+        self._load_sessions()
+
+    def _on_refine_error(self, error_msg):
+        self.input_field.setEnabled(True)
+        self._append_message("assistant", f"⚠️ {error_msg}")
+        self._show_error(error_msg)
+
+    # ── 版本 ──
+
+    def _load_versions(self):
+        self.version_tree.clear()
+        if not self.current_session_id:
+            return
+        try:
+            detail = self.api.get_session(self.current_session_id)
+            for v in detail.get("versions", []):
+                self.version_map[v["id"]] = (v["number"], v.get("design_json", "{}"))
+                item = QTreeWidgetItem(self.version_tree)
+                item.setText(0, f"v{v['number']}")
+                item.setData(0, Qt.UserRole, v["id"])
+                item.setToolTip(0, f"v{v['number']} — {v.get('description', '')}")
+
+                # 操作按钮容器
+                btn_w = QWidget()
+                btn_layout = QHBoxLayout(btn_w)
+                btn_layout.setContentsMargins(0, 0, 0, 0)
+                btn_layout.setSpacing(4)
+
+                btn_cad = QPushButton("推CAD")
+                btn_cad.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; font-size:11px; padding:2px 8px;")
+                btn_cad.clicked.connect(lambda checked, vid=v["id"]: self._push_to_cad(vid))
+                btn_layout.addWidget(btn_cad)
+
+                self.version_tree.setItemWidget(item, 1, btn_w)
+        except Exception as e:
+            pass  # 静默处理版本加载错误
+
+    def _push_to_cad(self, version_id: str):
+        """推送到 AutoCAD。"""
+        if not HAS_PYWIN32:
+            self._show_error("CAD 功能仅支持 Windows 环境\n请安装 AutoCAD + pywin32")
+            return
+
+        vdata = self.version_map.get(version_id)
+        if not vdata:
+            self._show_error("版本数据未加载")
+            return
+
+        _, design_json = vdata
+        try:
+            # 连接 AutoCAD 并绘制
+            if self.cad_engine is None:
+                self.cad_engine = CadEngine()
+            self.cad_engine.connect(visible=True)
+            self.cad_engine.draw_from_json(design_json)
+
+            # 保存临时 DWG
+            tmp_dir = Path(tempfile.gettempdir()) / "hsxb-ai-cad"
+            tmp_dir.mkdir(exist_ok=True)
+            dwg_path = tmp_dir / f"v{vdata[0]}-{version_id[:8]}.dwg"
+            saved = self.cad_engine.save_as_dwg(str(dwg_path))
+
+            # 上传到服务器
+            self._append_message("assistant", f"📐 已推送到 AutoCAD\n💾 本地: {saved}", version_id)
+
+            # 异步上传
+            self.dwg_worker = DWGUploadWorker(self.api, version_id, saved)
+            self.dwg_worker.finished.connect(lambda r: self._append_message("assistant", "☁️ 已同步到服务器"))
+            self.dwg_worker.error.connect(lambda e: self._append_message("assistant", f"⚠️ 同步失败: {e}"))
+            self.dwg_worker.start()
+
+        except Exception as e:
+            self._show_error(f"CAD 操作失败: {e}")
+
+    # ── 其他 ──
+
+    def _show_settings(self):
+        dlg = SettingsDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            self.api.base_url = get_server_url()
+            self._load_projects()
+
+    def _logout(self):
+        clear_credentials()
+        self.close()
+
+    def _show_error(self, msg: str):
+        QMessageBox.warning(self, "错误", msg)
+
+
+class NewProjectDialog(QDialog):
+    """新建项目对话框。"""
+
+    def __init__(self, api: APIClient, parent=None):
+        super().__init__(parent)
+        self.api = api
+        self.setWindowTitle("新建项目")
+        self.setMinimumWidth(480)
+        self.setStyleSheet(self._style())
+
+        layout = QFormLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+
+        self.title_input = QLineEdit()
+        self.title_input.setPlaceholderText("例如：成都2000平肉制品厂")
+        layout.addRow("项目名称", self.title_input)
+
+        # 边界选择
+        self.boundary_checks = []
+        self.boundary_group = QGroupBox("设计边界（可多选）")
+        bv = QVBoxLayout(self.boundary_group)
+        try:
+            for b in api.list_boundaries():
+                cb = QCheckBox(b["name"])
+                cb.setProperty("boundary_id", b["id"])
+                bv.addWidget(cb)
+                self.boundary_checks.append(cb)
+        except Exception:
+            bv.addWidget(QLabel("（无法加载边界列表）"))
+        layout.addRow(self.boundary_group)
+
+        # 参考项目
+        self.ref_combo = QComboBox()
+        self.ref_combo.addItem("（无）", None)
+        try:
+            for rp in api.list_reference_projects():
+                self.ref_combo.addItem(rp["title"], rp["id"])
+        except Exception:
+            pass
+        layout.addRow("参考项目", self.ref_combo)
+
+        # 按钮
+        btn_row = QHBoxLayout()
+        btn_cancel = QPushButton("取消")
+        btn_cancel.clicked.connect(self.reject)
+        btn_create = QPushButton("创建")
+        btn_create.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; font-weight:600;")
+        btn_create.clicked.connect(self._create)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_create)
+        layout.addRow(btn_row)
+
+    def _create(self):
+        title = self.title_input.text().strip()
+        if not title:
+            QMessageBox.warning(self, "错误", "请输入项目名称")
+            return
+        bids = [cb.property("boundary_id") for cb in self.boundary_checks if cb.isChecked()]
+        ref_id = self.ref_combo.currentData()
+        try:
+            self.api.create_project(title, bids, ref_id)
+            self.accept()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", str(e))
+
+    def _style(self):
+        return f"""
+        QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
+        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; padding:8px; border-radius:4px; }}
+        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; padding:6px 16px; border-radius:4px; }}
+        """
