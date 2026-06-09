@@ -213,7 +213,6 @@ function showModal(title, bodyHtml, onSave) {
   document.getElementById('modalSave').addEventListener('click', async () => {
     try { await onSave(); ov.remove(); } catch(e) { toast(e.message, false); }
   });
-  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
 }
 
 // ── 用户管理 ──
@@ -420,14 +419,8 @@ function editLlm() {
 }
 
 async function testLlm() {
-  const c = await req('GET', '/api/admin/llm-config');
-  const key = prompt('输入 API Key 进行测试:', '');
-  if (!key) return;
   try {
-    await req('POST', '/api/admin/llm-config/test', {
-      api_key: key, provider: c.provider, api_base: c.api_base,
-      model_name: c.model_name, temperature: c.temperature, timeout_seconds: c.timeout_seconds
-    });
+    await req('POST', '/api/admin/llm-config/test-active', {});
     toast('连接成功');
   } catch(e) { toast(e.message, false); }
 }

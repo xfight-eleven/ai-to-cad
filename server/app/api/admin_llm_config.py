@@ -149,3 +149,45 @@ def test_llm_connection(
             )
     except Exception as e:
         return LlmTestResult(success=False, error=str(e)[:200])
+
+@router.post("/test-active", response_model=LlmTestResult)
+def test_llm_active(
+    admin: User = Depends(require_admin),
+    db: DbSession = Depends(get_db),
+):
+    """测试当前生效的大模型连接 —— 使用服务器存储的 API Key，无需用户输入。"""
+    import time
+    import httpx
+
+    config = db.query(LlmConfig).filter(LlmConfig.is_active == True).first()
+    if not config:
+        return LlmTestResult(success=False, error="未配置大模型")
+
+    api_key = decrypt_api_key(config.api_key_encrypted)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": config.model_name,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 5,
+        "temperature": config.temperature,
+    }
+
+    start = time.time()
+    try:
+        resp = httpx.post(
+            f"{config.api_base.rstrip('/')}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=config.timeout_seconds,
+            trust_env=False,
+        )
+        latency = int((time.time() - start) * 1000)
+        if resp.status_code == 200:
+            return LlmTestResult(success=True, latency_ms=latency)
+        else:
+            return LlmTestResult(success=False, latency_ms=latency, error=f"HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        return LlmTestResult(success=False, error=str(e)[:200])
