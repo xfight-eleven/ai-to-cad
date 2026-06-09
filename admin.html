@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 — AI CAD</title>
+<style>
+:root {
+  --bg: #141517;
+  --sb: #1A1B1E;
+  --pn: #1E1F23;
+  --in: #25262B;
+  --tx: #E5E5EA;
+  --t2: #98989E;
+  --t3: #636368;
+  --br: #4F6EF7;
+  --bd: #2C2D31;
+  --er: #FF5252;
+  --ok: #4CAF50;
+  --ac: #F9A825;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:var(--bg); color:var(--tx); font-size:14px; }
+a { color:var(--br); }
+button { cursor:pointer; font-family:inherit; }
+
+/* Login */
+.login-wrap { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+.login-box { background:var(--pn); padding:40px; border-radius:12px; width:400px; border:1px solid var(--bd); }
+.login-box h1 { font-size:22px; margin-bottom:24px; text-align:center; }
+.login-box label { display:block; font-size:13px; color:var(--t2); margin-bottom:6px; }
+.login-box input { width:100%; background:var(--in); border:1px solid var(--bd); color:var(--tx); padding:10px 12px; border-radius:6px; font-size:14px; margin-bottom:16px; }
+.login-box input:focus { outline:none; border-color:var(--br); }
+.login-box button { width:100%; background:var(--br); color:#fff; border:none; padding:12px; border-radius:6px; font-size:15px; font-weight:600; }
+.login-err { color:var(--er); font-size:13px; margin-bottom:12px; text-align:center; min-height:20px; }
+
+/* Layout */
+#app { display:flex; min-height:100vh; }
+.sidebar { width:200px; background:var(--sb); padding:20px 0; display:flex; flex-direction:column; border-right:1px solid var(--bd); }
+.sidebar h2 { font-size:16px; padding:0 20px 16px; border-bottom:1px solid var(--bd); margin-bottom:12px; }
+.sidebar nav { flex:1; }
+.sidebar a { display:block; padding:10px 20px; color:var(--t2); text-decoration:none; font-size:13px; transition:all .15s; }
+.sidebar a:hover, .sidebar a.active { color:var(--tx); background:rgba(79,110,247,0.1); }
+.sidebar .logout { padding:20px; color:var(--t3); font-size:12px; }
+.sidebar .logout a { color:var(--er); text-decoration:none; }
+
+.main { flex:1; padding:32px; overflow-y:auto; }
+.main h1 { font-size:20px; margin-bottom:24px; font-weight:600; }
+
+/* Tabs */
+.tabs { display:flex; gap:4px; margin-bottom:24px; border-bottom:1px solid var(--bd); }
+.tab { padding:8px 20px; border:none; background:none; color:var(--t2); font-size:13px; border-bottom:2px solid transparent; }
+.tab:hover { color:var(--tx); }
+.tab.active { color:var(--br); border-bottom-color:var(--br); }
+
+/* Table */
+.panel { background:var(--pn); border-radius:8px; border:1px solid var(--bd); overflow:hidden; }
+.panel-header { padding:16px 20px; border-bottom:1px solid var(--bd); display:flex; align-items:center; justify-content:space-between; }
+.panel-header h3 { font-size:15px; font-weight:600; }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:10px 16px; text-align:left; font-size:13px; }
+th { color:var(--t2); font-weight:500; border-bottom:1px solid var(--bd); }
+td { border-bottom:1px solid rgba(44,45,49,0.5); }
+tr:last-child td { border-bottom:none; }
+
+/* Buttons */
+.btn { padding:6px 14px; border-radius:4px; font-size:12px; border:1px solid var(--bd); background:var(--pn); color:var(--tx); }
+.btn:hover { border-color:var(--br); }
+.btn-pri { background:var(--br); color:#fff; border:none; }
+.btn-pri:hover { opacity:0.9; }
+.btn-ok { background:var(--ok); color:#fff; border:none; }
+.btn-er { color:var(--er); border-color:var(--er); }
+.btn-sm { padding:4px 10px; font-size:11px; margin-right:4px; }
+
+/* Badges */
+.badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:11px; }
+.badge-on { background:rgba(76,175,80,0.15); color:var(--ok); }
+.badge-off { background:rgba(255,82,82,0.15); color:var(--er); }
+
+/* Form */
+.form-group { margin-bottom:16px; }
+.form-group label { display:block; font-size:12px; color:var(--t2); margin-bottom:4px; }
+.form-group input, .form-group select, .form-group textarea { width:100%; background:var(--in); border:1px solid var(--bd); color:var(--tx); padding:8px 12px; border-radius:4px; font-size:13px; }
+.form-group textarea { min-height:150px; font-family: monospace; font-size:12px; resize:vertical; }
+.form-row { display:flex; gap:16px; }
+.form-row .form-group { flex:1; }
+
+/* Modal */
+.modal-o { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:100; }
+.modal { background:var(--pn); border-radius:12px; border:1px solid var(--bd); width:560px; max-height:80vh; overflow-y:auto; }
+.modal-header { padding:16px 20px; border-bottom:1px solid var(--bd); display:flex; justify-content:space-between; align-items:center; }
+.modal-header h3 { font-size:16px; }
+.modal-body { padding:20px; }
+.modal-footer { padding:12px 20px; border-top:1px solid var(--bd); display:flex; justify-content:flex-end; gap:8px; }
+
+/* Toast */
+.toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:6px; color:#fff; font-size:13px; z-index:200; animation:slide .3s; }
+.toast.ok { background:var(--ok); }
+.toast.err { background:var(--er); }
+@keyframes slide { from { transform:translateX(100%);opacity:0 } to { transform:translateX(0);opacity:1 } }
+
+.hidden { display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="loginPage" class="login-wrap">
+  <div class="login-box">
+    <h1>AI CAD 管理后台</h1>
+    <div class="login-err" id="loginErr"></div>
+    <label>用户名</label>
+    <input type="text" id="loginUser" placeholder="管理员账号" value="admin">
+    <label>密码</label>
+    <input type="password" id="loginPass" placeholder="管理员密码" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">登 录</button>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" class="hidden">
+  <aside class="sidebar">
+    <h2>AI CAD</h2>
+    <nav>
+      <a href="#" data-tab="users" class="active">用户管理</a>
+      <a href="#" data-tab="boundaries">设计边界</a>
+      <a href="#" data-tab="llm">大模型配置</a>
+      <a href="#" data-tab="server">服务器配置</a>
+    </nav>
+    <div class="logout">
+      当前: <span id="currentUser"></span> &nbsp; <a href="#" onclick="logout()">退出</a>
+    </div>
+  </aside>
+  <main class="main" id="mainContent"></main>
+</div>
+
+<script>
+const BASE = window.location.origin.replace(/\/+$/, '');
+let token = '';
+
+// ── Utils ──
+function req(method, path, body) {
+  const h = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  const opts = { method, headers: h };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  return fetch(BASE + path, opts).then(async r => {
+    const t = await r.text();
+    let d;
+    try { d = JSON.parse(t); } catch(e) { throw new Error('HTTP ' + r.status); }
+    if (!r.ok) throw new Error(d.detail || '请求失败');
+    return d;
+  });
+}
+function toast(msg, ok=true) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── Login ──
+async function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value.trim();
+  if (!u || !p) return;
+  try {
+    const d = await req('POST', '/api/auth/login', { username: u, password: p });
+    if (d.user.role !== 'admin') throw new Error('需要管理员权限');
+    token = d.access_token;
+    document.getElementById('currentUser').textContent = d.user.display_name;
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    showTab('users');
+  } catch(e) {
+    document.getElementById('loginErr').textContent = e.message;
+  }
+}
+function logout() { token = ''; location.reload(); }
+
+// ── Tabs ──
+document.querySelectorAll('.sidebar a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.sidebar a').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    showTab(a.dataset.tab);
+  });
+});
+
+function showTab(name) {
+  const m = document.getElementById('mainContent');
+  if (name === 'users') renderUsers(m);
+  else if (name === 'boundaries') renderBoundaries(m);
+  else if (name === 'llm') renderLlm(m);
+  else if (name === 'server') renderServer(m);
+}
+
+// ── Modal ──
+function showModal(title, bodyHtml, onSave) {
+  const ov = document.createElement('div'); ov.className = 'modal-o';
+  ov.innerHTML = `
+    <div class="modal">
+      <div class="modal-header"><h3>${title}</h3><button class="btn btn-er btn-sm" onclick="this.closest('.modal-o').remove()">&times;</button></div>
+      <div class="modal-body">${bodyHtml}</div>
+      <div class="modal-footer">
+        <button class="btn" onclick="this.closest('.modal-o').remove()">取消</button>
+        <button class="btn btn-pri" id="modalSave">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  document.getElementById('modalSave').addEventListener('click', async () => {
+    try { await onSave(); ov.remove(); } catch(e) { toast(e.message, false); }
+  });
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+}
+
+// ── 用户管理 ──
+async function renderUsers(el) {
+  const users = await req('GET', '/api/admin/users');
+  let rows = users.map(u => `
+    <tr>
+      <td>${u.username}</td>
+      <td>${u.display_name}</td>
+      <td><span class="badge ${u.role==='admin'?'badge-on':'badge-off'}">${u.role}</span></td>
+      <td><span class="badge ${u.status==='active'?'badge-on':'badge-off'}">${u.status==='active'?'启用':'停用'}</span></td>
+      <td>${new Date(u.created_at).toLocaleDateString()}</td>
+      <td>
+        <button class="btn btn-sm" onclick="editUser('${u.id}','${u.username}','${u.display_name}','${u.role}','${u.status}')">编辑</button>
+        <button class="btn btn-sm btn-er" onclick="delUser('${u.id}','${u.username}')">删除</button>
+      </td>
+    </tr>`).join('');
+
+  el.innerHTML = `
+    <h1>用户管理</h1>
+    <div class="panel">
+      <div class="panel-header"><h3>所有用户</h3>
+        <button class="btn btn-pri" onclick="newUser()">+ 新建用户</button>
+      </div>
+      <table><thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+function newUser() {
+  showModal('新建用户', `
+    <div class="form-group"><label>用户名</label><input id="muName" placeholder="英文用户名"></div>
+    <div class="form-group"><label>显示名</label><input id="muDisp" placeholder="张设计师"></div>
+    <div class="form-group"><label>密码</label><input type="password" id="muPass"></div>
+    <div class="form-group"><label>角色</label><select id="muRole"><option value="designer">设计师</option><option value="admin">管理员</option></select></div>`,
+    async () => {
+      await req('POST', '/api/admin/users', {
+        username: document.getElementById('muName').value.trim(),
+        password: document.getElementById('muPass').value,
+        display_name: document.getElementById('muDisp').value.trim(),
+        role: document.getElementById('muRole').value
+      });
+      toast('用户创建成功'); renderUsers(document.getElementById('mainContent'));
+    });
+}
+
+function editUser(id, uname, dname, role, status) {
+  showModal('编辑用户 — ' + uname, `
+    <div class="form-group"><label>显示名</label><input id="euDisp" value="${dname}"></div>
+    <div class="form-group"><label>新密码</label><input type="password" id="euPass" placeholder="留空不修改"></div>
+    <div class="form-group"><label>角色</label><select id="euRole"><option value="designer" ${role==='designer'?'selected':''}>设计师</option><option value="admin" ${role==='admin'?'selected':''}>管理员</option></select></div>
+    <div class="form-group"><label>状态</label><select id="euStatus"><option value="active" ${status==='active'?'selected':''}>启用</option><option value="disabled" ${status==='disabled'?'selected':''}>停用</option></select></div>`,
+    async () => {
+      const d = { status: document.getElementById('euStatus').value, role: document.getElementById('euRole').value, display_name: document.getElementById('euDisp').value.trim() };
+      const pw = document.getElementById('euPass').value;
+      if (pw) d.password = pw;
+      await req('PUT', '/api/admin/users/' + id, d);
+      toast('用户已更新'); renderUsers(document.getElementById('mainContent'));
+    });
+}
+
+function delUser(id, name) {
+  if (!confirm('确认删除用户 ' + name + '？\\n该项目下的数据将被清理。')) return;
+  req('DELETE', '/api/admin/users/' + id).then(() => {
+    toast('用户已删除'); renderUsers(document.getElementById('mainContent'));
+  }).catch(e => toast(e.message, false));
+}
+
+// ── 设计边界 ──
+async function renderBoundaries(el) {
+  const boundaries = await req('GET', '/api/admin/boundaries');
+  let rows = boundaries.map(b => `
+    <tr>
+      <td>${b.name}</td>
+      <td>${b.description || ''}</td>
+      <td><span class="badge ${b.is_active?'badge-on':'badge-off'}">${b.is_active?'生效':'停用'}</span></td>
+      <td>${b.sort_order}</td>
+      <td>
+        <button class="btn btn-sm" onclick="editBoundary('${b.id}','${b.name}','${b.is_active}','${b.sort_order}')">编辑</button>
+        <button class="btn btn-sm btn-er" onclick="delBoundary('${b.id}','${b.name}')">删除</button>
+      </td>
+    </tr>`).join('');
+
+  el.innerHTML = `
+    <h1>设计边界</h1>
+    <div class="panel">
+      <div class="panel-header"><h3>边界模板列表</h3>
+        <button class="btn btn-pri" onclick="newBoundary()">+ 新建边界</button>
+      </div>
+      <table><thead><tr><th>名称</th><th>描述</th><th>状态</th><th>排序</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+function newBoundary() {
+  showModal('新建边界', `
+    <div class="form-group"><label>名称</label><input id="mbName"></div>
+    <div class="form-group"><label>描述</label><input id="mbDesc"></div>
+    <div class="form-group"><label>排序</label><input type="number" id="mbSort" value="0"></div>
+    <div class="form-group"><label>规则 JSON（自由格式，系统不解析不校验）</label><textarea id="mbRules">{"type":"boundary","version":"1.0","rules":[]}</textarea></div>`,
+    async () => {
+      await req('POST', '/api/admin/boundaries', {
+        name: document.getElementById('mbName').value.trim(),
+        description: document.getElementById('mbDesc').value.trim(),
+        sort_order: parseInt(document.getElementById('mbSort').value) || 0,
+        rules_json: document.getElementById('mbRules').value
+      });
+      toast('边界创建成功'); renderBoundaries(document.getElementById('mainContent'));
+    });
+}
+
+function editBoundary(id, name, active, order) {
+  req('GET', '/api/admin/boundaries/' + id).then(b => {
+    showModal('编辑边界 — ' + name, `
+      <div class="form-group"><label>名称</label><input id="ebName" value="${b.name}"></div>
+      <div class="form-group"><label>描述</label><input id="ebDesc" value="${b.description||''}"></div>
+      <div class="form-group"><label>排序</label><input type="number" id="ebSort" value="${b.sort_order}"></div>
+      <div class="form-group"><label>状态</label><select id="ebActive"><option value="true" ${b.is_active?'selected':''}>生效</option><option value="false" ${!b.is_active?'selected':''}>停用</option></select></div>
+      <div class="form-group"><label>规则 JSON</label><textarea id="ebRules">${b.rules_json}</textarea></div>`,
+      async () => {
+        await req('PUT', '/api/admin/boundaries/' + id, {
+          name: document.getElementById('ebName').value.trim(),
+          description: document.getElementById('ebDesc').value.trim(),
+          sort_order: parseInt(document.getElementById('ebSort').value) || 0,
+          is_active: document.getElementById('ebActive').value === 'true',
+          rules_json: document.getElementById('ebRules').value
+        });
+        toast('边界已更新'); renderBoundaries(document.getElementById('mainContent'));
+      });
+  });
+}
+
+function delBoundary(id, name) {
+  if (!confirm('确认删除边界 "' + name + '"？')) return;
+  req('DELETE', '/api/admin/boundaries/' + id).then(() => {
+    toast('边界已删除'); renderBoundaries(document.getElementById('mainContent'));
+  }).catch(e => toast(e.message, false));
+}
+
+// ── 大模型配置 ──
+async function renderLlm(el) {
+  let config;
+  try { config = await req('GET', '/api/admin/llm-config'); } catch(e) { config = null; }
+  const has = !!config;
+
+  el.innerHTML = `
+    <h1>大模型配置</h1>
+    <div class="panel">
+      <div class="panel-header"><h3>${has ? '当前配置' : '未配置'}</h3></div>
+      ${has ? `
+      <table>
+        <tr><th style="width:150px">配置项</th><th>值</th></tr>
+        <tr><td>Provider</td><td>${config.provider}</td></tr>
+        <tr><td>API Base</td><td>${config.api_base}</td></tr>
+        <tr><td>模型</td><td>${config.model_name}</td></tr>
+        <tr><td>Temperature</td><td>${config.temperature}</td></tr>
+        <tr><td>Max Tokens</td><td>${config.max_tokens}</td></tr>
+        <tr><td>超时(秒)</td><td>${config.timeout_seconds}</td></tr>
+        <tr><td>API Key</td><td>${config.api_key_encrypted}</td></tr>
+        <tr><td>状态</td><td><span class="badge badge-on">生效中</span></td></tr>
+        <tr><td>最后更新</td><td>${new Date(config.updated_at).toLocaleString()} by ${config.updated_by||''}</td></tr>
+      </table>` : '<p style="padding:20px;color:var(--t3)">尚未配置大模型</p>'}
+      <div style="padding:16px 20px;border-top:1px solid var(--bd);display:flex;gap:8px;">
+        <button class="btn btn-pri" onclick="editLlm()">修改配置</button>
+        <button class="btn" onclick="testLlm()">测试连接</button>
+      </div>
+    </div>`;
+}
+
+function editLlm() {
+  req('GET', '/api/admin/llm-config').then(c => {
+    showModal('修改大模型配置', `
+      <div class="form-row">
+        <div class="form-group"><label>Provider</label><input id="mlProv" value="${c.provider}"></div>
+        <div class="form-group"><label>模型</label><input id="mlModel" value="${c.model_name}"></div>
+      </div>
+      <div class="form-group"><label>API Key</label><input id="mlKey" placeholder="输入新的 API Key"></div>
+      <div class="form-group"><label>API Base URL</label><input id="mlBase" value="${c.api_base}"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Temperature</label><input type="number" step="0.1" id="mlTemp" value="${c.temperature}"></div>
+        <div class="form-group"><label>Max Tokens</label><input type="number" id="mlMax" value="${c.max_tokens}"></div>
+      </div>
+      <div class="form-group"><label>超时(秒)</label><input type="number" id="mlTimeout" value="${c.timeout_seconds}"></div>`,
+      async () => {
+        const d = {
+          provider: document.getElementById('mlProv').value.trim(),
+          api_base: document.getElementById('mlBase').value.trim(),
+          model_name: document.getElementById('mlModel').value.trim(),
+          temperature: parseFloat(document.getElementById('mlTemp').value),
+          max_tokens: parseInt(document.getElementById('mlMax').value),
+          timeout_seconds: parseInt(document.getElementById('mlTimeout').value)
+        };
+        const key = document.getElementById('mlKey').value.trim();
+        if (key) d.api_key = key;
+        await req('PUT', '/api/admin/llm-config', d);
+        toast('配置已更新（热切换，无需重启）'); renderLlm(document.getElementById('mainContent'));
+      });
+  });
+}
+
+async function testLlm() {
+  const c = await req('GET', '/api/admin/llm-config');
+  const key = prompt('输入 API Key 进行测试:', '');
+  if (!key) return;
+  try {
+    await req('POST', '/api/admin/llm-config/test', {
+      api_key: key, provider: c.provider, api_base: c.api_base,
+      model_name: c.model_name, temperature: c.temperature, timeout_seconds: c.timeout_seconds
+    });
+    toast('连接成功');
+  } catch(e) { toast(e.message, false); }
+}
+
+// ── 服务器配置 ──
+async function renderServer(el) {
+  const cfg = await req('GET', '/api/admin/server-config');
+  const c = cfg.config;
+  el.innerHTML = `
+    <h1>服务器配置</h1>
+    <div class="panel">
+      <div class="panel-header"><h3>当前配置</h3></div>
+      <table>
+        <tr><th style="width:180px">配置项</th><th>值</th><th>默认值</th></tr>
+        <tr><td>服务端绑定 IP</td><td>${c.server_ip}</td><td>${cfg.defaults.server_ip}</td></tr>
+        <tr><td>服务端端口</td><td>${c.server_port}</td><td>${cfg.defaults.server_port}</td></tr>
+        <tr><td>客户端默认地址</td><td>${c.client_default_server}</td><td>${cfg.defaults.client_default_server}</td></tr>
+      </table>
+      <div style="padding:16px 20px;border-top:1px solid var(--bd);">
+        <button class="btn btn-pri" onclick="editServer()">修改配置</button>
+      </div>
+    </div>`;
+}
+
+function editServer() {
+  req('GET', '/api/admin/server-config').then(c => {
+    showModal('修改服务器配置', `
+      <div class="form-group"><label>服务端绑定 IP</label><input id="msIp" value="${c.config.server_ip}"></div>
+      <div class="form-group"><label>服务端端口</label><input id="msPort" value="${c.config.server_port}"></div>
+      <div class="form-group"><label>客户端默认连接地址</label><input id="msClient" value="${c.config.client_default_server}" placeholder="http://192.168.10.xxx:3000"></div>`,
+      async () => {
+        await req('PUT', '/api/admin/server-config', {
+          server_ip: document.getElementById('msIp').value.trim(),
+          server_port: document.getElementById('msPort').value.trim(),
+          client_default_server: document.getElementById('msClient').value.trim()
+        });
+        toast('服务器配置已更新'); renderServer(document.getElementById('mainContent'));
+      });
+  });
+}
+</script>
+</body>
+</html>
