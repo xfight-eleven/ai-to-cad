@@ -432,6 +432,10 @@ class MainWindow(QMainWindow):
             if item.widget() and isinstance(item.widget(), QPushButton):
                 btn = item.widget()
                 btn.setChecked(btn.text() == title)
+        # Clear old data
+        self.chat_area.clear()
+        self.version_tree.clear()
+        self.version_map.clear()
         self._load_messages()
         self._load_versions()
 
@@ -529,7 +533,8 @@ class MainWindow(QMainWindow):
             return
         try:
             detail = self.api.get_session(self.current_session_id)
-            for v in detail.get("versions", []):
+            versions = detail.get("versions", [])
+            for v in versions:
                 self.version_map[v["id"]] = (v["number"], v.get("design_json", "{}"))
                 item = QTreeWidgetItem(self.version_tree)
                 item.setText(0, f"v{v['number']}")
@@ -549,7 +554,7 @@ class MainWindow(QMainWindow):
 
                 self.version_tree.setItemWidget(item, 1, btn_w)
         except Exception as e:
-            pass  # 静默处理版本加载错误
+            self._show_error(f"加载版本失败: {e}")
 
     def _push_to_cad(self, version_id: str):
         """推送到 AutoCAD。"""
