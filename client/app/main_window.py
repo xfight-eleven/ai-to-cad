@@ -280,16 +280,16 @@ class MainWindow(QMainWindow):
         self.session_bar = QWidget()
         self.session_bar.setStyleSheet(f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};")
         sb_layout = QHBoxLayout(self.session_bar)
-        sb_layout.setContentsMargins(12, 6, 12, 6)
-        sb_layout.setSpacing(4)
+        sb_layout.setContentsMargins(8, 4, 8, 4)
+        sb_layout.setSpacing(2)
 
         self.session_tabs = QHBoxLayout()
         self.session_tabs.setSpacing(4)
         sb_layout.addLayout(self.session_tabs)
         sb_layout.addStretch()
 
-        self.btn_add_session = QPushButton("+ 新方案")
-        self.btn_add_session.setStyleSheet(f"font-size:11px; padding:4px 10px;")
+        self.btn_add_session = QPushButton("+")
+        self.btn_add_session.setStyleSheet(f"font-size:13px; padding:2px 8px;")
         self.btn_add_session.clicked.connect(self._new_session_dialog)
         self.btn_add_session.setVisible(False)
         sb_layout.addWidget(self.btn_add_session)
@@ -415,13 +415,12 @@ class MainWindow(QMainWindow):
             btn.setCheckable(True)
             btn.setStyleSheet(
                 "QPushButton { background:" + PALETTE["panel"] + "; color:" + PALETTE["text_dim"] + "; border:1px solid " + PALETTE["border"] + ";"
-                " padding:4px 12px; border-radius:4px; font-size:12px; }"
+                " padding:3px 10px; border-radius:3px; font-size:12px; margin-right:2px; }"
                 " QPushButton:hover { border-color:" + PALETTE["primary"] + "; color:" + PALETTE["text"] + "; }"
                 " QPushButton:checked { background:" + PALETTE["primary_dim"] + "; color:" + PALETTE["text"] + "; border-color:" + PALETTE["primary"] + "; }"
             )
             btn.clicked.connect(lambda checked, sid=s["id"], title=s["title"]: self._switch_session(sid, title))
             self.session_tabs.addWidget(btn)
-        self.session_tabs.addStretch()
         self.btn_add_session.setVisible(True)
 
     def _switch_session(self, session_id, title):
