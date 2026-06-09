@@ -179,6 +179,7 @@ async function doLogin() {
   }
 }
 function logout() { token = ''; location.reload(); }
+function escapeHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
 
 // ── Tabs ──
 document.querySelectorAll('.sidebar a').forEach(a => {
@@ -477,7 +478,7 @@ async function renderProjects(el) {
       <td>${p.session_count}</td>
       <td>${new Date(p.updated_at).toLocaleString()}</td>
       <td>
-        <button class="btn btn-sm" onclick="viewProject('${p.id}','${p.title.replace(/'/g,"\'")}')">查看</button>
+        <button class="btn btn-sm" onclick="viewProject('${p.id}',escapeHtml('${p.title}'))">查看</button>
       </td>
     </tr>`;
   }).join('');
@@ -501,7 +502,7 @@ async function viewProject(pid, title) {
   for (const s of sessions) {
     html += '<div class="panel" style="margin-bottom:12px">';
     html += '<div class="panel-header"><h3>' + s.title + ' <span style="font-weight:400;color:var(--t2);font-size:12px">' + s.version_count + ' 个版本 · ' + s.message_count + ' 条对话</span></h3>';
-    html += '<button class="btn btn-sm btn-pri" onclick="viewSession('' + s.id + '')">查看详情</button></div>';
+    html += '<button class="btn btn-sm btn-pri" onclick="viewSession(\'' + s.id + '\')">查看详情</button></div>';
     if (s.last_message) {
       html += '<div style="padding:12px 20px;color:var(--t2);font-size:13px">最后消息: ' + s.last_message + '</div>';
     }
