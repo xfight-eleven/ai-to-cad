@@ -414,10 +414,10 @@ class MainWindow(QMainWindow):
             btn = QPushButton(s["title"])
             btn.setCheckable(True)
             btn.setStyleSheet(
-                "QPushButton { background:" + PALETTE["panel"] + "; color:" + PALETTE["t2"] + "; border:1px solid " + PALETTE["border"] + ";"
+                "QPushButton { background:" + PALETTE["panel"] + "; color:" + PALETTE["text_dim"] + "; border:1px solid " + PALETTE["border"] + ";"
                 " padding:4px 12px; border-radius:4px; font-size:12px; }"
-                " QPushButton:hover { border-color:" + PALETTE["primary"] + "; color:" + PALETTE["tx"] + "; }"
-                " QPushButton:checked { background:" + PALETTE["primary_dim"] + "; color:" + PALETTE["tx"] + "; border-color:" + PALETTE["primary"] + "; }"
+                " QPushButton:hover { border-color:" + PALETTE["primary"] + "; color:" + PALETTE["text"] + "; }"
+                " QPushButton:checked { background:" + PALETTE["primary_dim"] + "; color:" + PALETTE["text"] + "; border-color:" + PALETTE["primary"] + "; }"
             )
             btn.clicked.connect(lambda checked, sid=s["id"], title=s["title"]: self._switch_session(sid, title))
             self.session_tabs.addWidget(btn)
