@@ -21,7 +21,6 @@ from app.config import (
 
 # ── 前端文件路径 ──
 INDEX_HTML = Path(__file__).resolve().parent.parent.parent / "index.html"
-ADMIN_HTML = Path(__file__).resolve().parent.parent.parent / "admin.html"
 
 
 @asynccontextmanager
@@ -111,14 +110,6 @@ def health():
 
 
 # ── 前端页面 ──
-@app.get("/admin")
-def admin():
-    """管理后台。"""
-    if ADMIN_HTML.exists():
-        return FileResponse(str(ADMIN_HTML))
-    return {"error": "admin.html 未找到"}
-
-
 @app.get("/")
 def index():
     """项目首页。"""
