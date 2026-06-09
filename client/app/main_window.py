@@ -374,7 +374,6 @@ class MainWindow(QMainWindow):
         self._load_sessions()
         self.session_list.setVisible(True)
         self.btn_new_session.setVisible(True)
-        self._load_versions()load_sessions()
         self._load_versions()
 
     def _new_project(self):
