@@ -6,6 +6,7 @@ from app.models.llm_config import LlmConfig, LlmConfigLog
 from app.models.project import Project, ProjectBoundary
 from app.models.session import Session
 from app.models.version import Version
+from app.models.server_config import ServerConfig
 from app.models.message import Message
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "ProjectBoundary",
     "Session",
     "Version",
+    "ServerConfig",
     "Message",
 ]

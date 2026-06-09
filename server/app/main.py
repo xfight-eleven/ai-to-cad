@@ -76,6 +76,7 @@ from app.api import auth
 from app.api import admin_users
 from app.api import admin_boundaries
 from app.api import admin_llm_config
+from app.api import admin_server_config
 from app.api import boundaries as boundaries_public
 from app.api import projects
 from app.api import reference_projects
@@ -89,6 +90,7 @@ app.include_router(auth.router)
 app.include_router(admin_users.router)
 app.include_router(admin_boundaries.router)
 app.include_router(admin_llm_config.router)
+app.include_router(admin_server_config.router)
 app.include_router(boundaries_public.router)
 app.include_router(projects.router)
 app.include_router(reference_projects.router)

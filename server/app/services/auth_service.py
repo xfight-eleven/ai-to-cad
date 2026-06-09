@@ -35,3 +35,11 @@ def decode_access_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+def verify_token(token: str) -> dict:
+    """验证 JWT Token，成功返回 payload，失败抛异常。"""
+    payload = decode_access_token(token)
+    if payload is None:
+        raise ValueError("Token 无效或已过期")
+    return payload

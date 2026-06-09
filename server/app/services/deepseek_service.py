@@ -230,3 +230,95 @@ def call_deepseek(project_id: str, session_id: str, user_prompt: str) -> dict:
         "llm_provider": config["provider"],
         "llm_model": config["model_name"],
     }
+
+
+async def stream_deepseek(project_id: str, session_id: str, user_prompt: str):
+    """流式调用 DeepSeek API，逐 token yield。
+
+    Yields:
+        str: 每个 token 文本片段。最后 yield 完整 JSON 结果。
+    """
+    config = _get_active_config()
+    if not config:
+        yield '{"error": "未配置大模型"}'
+        return
+
+    messages = _build_messages(project_id, session_id, user_prompt)
+
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": config["model_name"],
+        "messages": messages,
+        "temperature": config["temperature"],
+        "max_tokens": config["max_tokens"],
+        "stream": True,
+    }
+
+    full_content = ""
+    async with httpx.AsyncClient(timeout=config["timeout_seconds"], trust_env=False) as client:
+        async with client.stream(
+            "POST",
+            f"{config['api_base']}/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                yield f'{{"error": "API {resp.status_code}: {body[:200].decode(errors="replace")}"}}'
+                return
+
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    token = delta.get("content", "")
+                    if token:
+                        full_content += token
+                        yield json.dumps({"type": "token", "text": token}, ensure_ascii=False)
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+
+    # 解析最终 JSON
+    content = full_content.strip()
+    if content.startswith("```"):
+        parts = content.split("```")
+        if len(parts) >= 2:
+            content = parts[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+    if not content.startswith("{"):
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            content = content[start:end+1]
+
+    try:
+        design = json.loads(content)
+    except json.JSONDecodeError:
+        yield json.dumps({"type": "result", "design_json": "{}", "description": "", "error": "JSON解析失败"}, ensure_ascii=False)
+        return
+
+    project_info = design.get("project", {})
+    if isinstance(project_info, str):
+        try:
+            project_info = json.loads(project_info)
+        except Exception:
+            project_info = {}
+    description = design.get("description", "") or (project_info.get("name", "") if isinstance(project_info, dict) else str(project_info))
+
+    yield json.dumps({
+        "type": "result",
+        "design_json": json.dumps(design, ensure_ascii=False),
+        "description": description,
+        "llm_provider": config["provider"],
+        "llm_model": config["model_name"],
+    }, ensure_ascii=False)
