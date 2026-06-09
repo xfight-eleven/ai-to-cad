@@ -265,16 +265,6 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.project_list)
 
 
-        self.session_list = QListWidget()
-        self.session_list.currentItemChanged.connect(self._on_session_selected)
-        self.session_list.setVisible(False)
-        left_layout.addWidget(self.session_list)
-
-        self.btn_new_session = QPushButton("+ 新会话")
-        self.btn_new_session.setStyleSheet("font-size:11px; padding:4px 10px;")
-        self.btn_new_session.clicked.connect(self._new_session)
-        self.btn_new_session.setVisible(False)
-        left_layout.addWidget(self.btn_new_session)
 
         left_layout.addStretch()
 
@@ -372,47 +362,48 @@ class MainWindow(QMainWindow):
         self.current_session_id = None
         self.chat_title.setText(f"  {item.text()}")
         self._load_sessions()
-        self.session_list.setVisible(True)
-        self.btn_new_session.setVisible(True)
         self._load_versions()
 
     def _new_project(self):
         dlg = NewProjectDialog(self.api, self)
         if dlg.exec() == QDialog.Accepted:
             self._load_projects()
+            # 自动选中最新项目
+            if self.project_list.count() > 0:
+                self.project_list.setCurrentRow(0)
 
     # ── 会话 ──
 
     def _load_sessions(self):
-        self.session_list.clear()
         if not self.current_project_id:
             return
         try:
             sessions = self.api.list_sessions(self.current_project_id)
-            for s in sessions:
-                text = f"{s['title']} (v{s.get('version_count', 0)})"
-                item = QListWidgetItem(text)
-                item.setData(Qt.UserRole, s["id"])
-                self.session_list.addItem(item)
+            # 自动选中第一个会话
+            if sessions:
+                self.current_session_id = sessions[0]["id"]
+                self.current_session_title = sessions[0]["title"]
+                self.chat_title.setText(f"  {self.current_session_title}")
+                self._load_messages()
+                self._load_versions()
         except Exception as e:
             self._show_error(f"加载会话失败: {e}")
 
     def _on_session_selected(self, item):
-        if not item:
-            return
-        self.current_session_id = item.data(Qt.UserRole)
-        self.current_session_title = item.text()
-        self._load_messages()
-        self._load_versions()
+        pass  # 会话列表已移除，改为自动选中首个会话
 
     def _new_session(self):
         if not self.current_project_id:
             self._show_error("请先选择一个项目")
             return
         try:
-            idx = self.session_list.count() + 1
+            # Count existing sessions to determine number
+            sessions = self.api.list_sessions(self.current_project_id)
+            idx = len(sessions) + 1
             title = f"方案{idx}"
-            s = self.api.create_session(self.current_project_id, title)
+            self.api.create_session(self.current_project_id, title)
+            # Auto-select the new session
+            self.current_session_id = None
             self._load_sessions()
         except Exception as e:
             self._show_error(f"创建会话失败: {e}")
