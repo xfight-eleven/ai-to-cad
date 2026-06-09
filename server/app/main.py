@@ -20,7 +20,7 @@ from app.config import (
 )
 
 # ── 前端文件路径 ──
-FRONT_HTML = Path(__file__).resolve().parent.parent.parent / "front.html"
+INDEX_HTML = Path(__file__).resolve().parent.parent.parent / "index.html"
 ADMIN_HTML = Path(__file__).resolve().parent.parent.parent / "admin.html"
 
 
@@ -119,7 +119,7 @@ def admin():
 
 @app.get("/")
 def index():
-    """返回前端 SPA 页面。"""
-    if FRONT_HTML.exists():
-        return FileResponse(str(FRONT_HTML))
-    return {"error": "front.html 未找到，请确保文件存在"}
+    """项目首页。"""
+    if INDEX_HTML.exists():
+        return FileResponse(str(INDEX_HTML))
+    return {"error": "index.html 未找到"}
