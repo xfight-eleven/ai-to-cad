@@ -367,6 +367,7 @@ class MainWindow(QMainWindow):
                 item = QListWidgetItem(p["title"])
                 item.setData(Qt.UserRole, p["id"])
                 self.project_list.addItem(item)
+
         except Exception as e:
             self._show_error(f"加载项目失败: {e}")
 
@@ -399,7 +400,8 @@ class MainWindow(QMainWindow):
             if sessions:
                 self._switch_session(sessions[0]["id"], sessions[0]["title"])
         except Exception as e:
-            self._show_error(f"加载会话失败: {e}")
+            import traceback
+            self._show_error(f"加载会话失败:\n{str(e)}\n\n{traceback.format_exc()[-200:]}")
 
     def _render_session_tabs(self, sessions):
         # Clear tabs
@@ -411,12 +413,12 @@ class MainWindow(QMainWindow):
         for s in sessions:
             btn = QPushButton(s["title"])
             btn.setCheckable(True)
-            btn.setStyleSheet(f"""
-                QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['t2']}; border:1px solid {PALETTE['border']};
-                    padding:4px 12px; border-radius:4px; font-size:12px; }}
-                QPushButton:hover {{ border-color:{PALETTE['primary']}; color:{PALETTE['tx']}; }}
-                QPushButton:checked {{ background:{PALETTE['primary_dim']}; color:{PALETTE['tx']}; border-color:{PALETTE['primary']}; }}
-            """)
+            btn.setStyleSheet(
+                "QPushButton { background:" + PALETTE["panel"] + "; color:" + PALETTE["t2"] + "; border:1px solid " + PALETTE["border"] + ";"
+                " padding:4px 12px; border-radius:4px; font-size:12px; }"
+                " QPushButton:hover { border-color:" + PALETTE["primary"] + "; color:" + PALETTE["tx"] + "; }"
+                " QPushButton:checked { background:" + PALETTE["primary_dim"] + "; color:" + PALETTE["tx"] + "; border-color:" + PALETTE["primary"] + "; }"
+            )
             btn.clicked.connect(lambda checked, sid=s["id"], title=s["title"]: self._switch_session(sid, title))
             self.session_tabs.addWidget(btn)
         self.session_tabs.addStretch()
