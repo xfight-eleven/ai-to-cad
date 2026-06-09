@@ -264,14 +264,20 @@ class MainWindow(QMainWindow):
         self.project_list.currentItemChanged.connect(self._on_project_selected)
         left_layout.addWidget(self.project_list)
 
-        left_layout.addWidget(QLabel("会话列表"))
+        session_header = QHBoxLayout()
+        session_header.addWidget(QLabel("会话列表"))
+        self.btn_new_session = QPushButton("+")
+        self.btn_new_session.setFixedSize(24, 24)
+        self.btn_new_session.setStyleSheet("font-size:14px; padding:0; border-radius:12px;")
+        self.btn_new_session.clicked.connect(self._new_session)
+        self.btn_new_session.setVisible(False)
+        session_header.addStretch()
+        session_header.addWidget(self.btn_new_session)
+        left_layout.addLayout(session_header)
+
         self.session_list = QListWidget()
         self.session_list.currentItemChanged.connect(self._on_session_selected)
         left_layout.addWidget(self.session_list)
-
-        btn_session = QPushButton("+ 新会话")
-        btn_session.clicked.connect(self._new_session)
-        left_layout.addWidget(btn_session)
 
         left_layout.addStretch()
 
@@ -366,6 +372,7 @@ class MainWindow(QMainWindow):
         if not item:
             return
         self.current_project_id = item.data(Qt.UserRole)
+        self.btn_new_session.setVisible(True)
         self.current_session_id = None
         self.chat_title.setText(f"  {item.text()}")
         self._load_sessions()
