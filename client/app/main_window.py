@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
 from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor
+from PySide6.QtWebSockets import QWebSocket
 
 from app.api_client import APIClient
 from app.config_manager import load_config, save_credentials, clear_credentials, get_server_url
@@ -45,25 +46,6 @@ PALETTE = {
     "user_bubble":  "rgba(79,110,247,0.12)",
     "ai_bubble":    "rgba(229,229,234,0.05)",
 }
-
-
-class RefineWorker(QThread):
-    """后台线程：调用 AI 生成/精炼。"""
-    finished = Signal(dict)
-    error = Signal(str)
-
-    def __init__(self, api: APIClient, session_id: str, prompt: str):
-        super().__init__()
-        self.api = api
-        self.session_id = session_id
-        self.prompt = prompt
-
-    def run(self):
-        try:
-            result = self.api.refine(self.session_id, self.prompt)
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
 
 
 class DWGUploadWorker(QThread):
@@ -159,6 +141,8 @@ class MainWindow(QMainWindow):
         self.cad_engine = None
         self.worker = None
         self.dwg_worker = None
+        self.ws = None
+        self.ws_streaming = False
         self.version_map = {}  # version_id -> (number, design_json)
 
         self.setWindowTitle("AI CAD — 工业厂房设计助手")
@@ -497,37 +481,83 @@ class MainWindow(QMainWindow):
         if not self.current_session_id:
             self._show_error("请先选择一个项目并创建会话")
             return
+        if self.ws_streaming:
+            self._show_error("AI 正在生成中，请等待")
+            return
 
         self._append_message("user", prompt)
         self.input_field.clear()
         self.input_field.setEnabled(False)
-        QApplication.processEvents()
+        self.ws_streaming = True
 
-        self.worker = RefineWorker(self.api, self.current_session_id, prompt)
-        self.worker.finished.connect(self._on_refine_done)
-        self.worker.error.connect(self._on_refine_error)
-        self.worker.start()
+        # WebSocket 连接
+        ws_url = self.api.base_url.replace("http://", "ws://").replace("https://", "wss://")
+        ws_url += f"/api/design/ws/refine?token={self.api.token}"
 
-    def _on_refine_done(self, result):
-        self.input_field.setEnabled(True)
-        version_id = result.get("version_id", "")
-        version_number = result.get("version_number", 0)
-        description = result.get("description", "")
+        self.ws = QWebSocket()
+        self.ws.textMessageReceived.connect(self._on_ws_message)
+        self.ws.connected.connect(lambda: self.ws.sendTextMessage(
+            json.dumps({"session_id": self.current_session_id, "prompt": prompt})
+        ))
+        self.ws.error.connect(lambda e: self._on_ws_error(str(e)))
+        self.ws.open(ws_url)
 
-        vers_text = f"✅ v{version_number} 已生成"
-        if description:
-            vers_text += f" — {description}"
-        self._append_message("assistant", vers_text, version_id)
+    def _on_ws_message(self, message):
+        """处理 WebSocket 流式消息。"""
+        try:
+            data = json.loads(message)
+        except json.JSONDecodeError:
+            return
 
-        # 更新版本树
-        design_json = result.get("design_json", "{}")
-        self.version_map[version_id] = (version_number, design_json)
-        self._load_versions()
+        msg_type = data.get("type", "")
+        if msg_type == "token":
+            # 追加 token 到对话区
+            text = data.get("text", "")
+            cursor = self.chat_area.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            cursor.insertText(text)
+            self.chat_area.setTextCursor(cursor)
+            self.chat_area.ensureCursorVisible()
+        elif msg_type == "result":
+            # 生成完成
+            self.ws_streaming = False
+            self.input_field.setEnabled(True)
+            version_number = 0
+            version_id = ""
+            if not data.get("error"):
+                design_json = data.get("design_json", "{}")
+                description = data.get("description", "")
+            self._last_ws_result = data
+        elif msg_type == "saved":
+            self.ws_streaming = False
+            self.input_field.setEnabled(True)
+            version_id = data.get("version_id", "")
+            version_number = data.get("version_number", 0)
+            self.chat_area.insertHtml(
+                f'<div style="color:{PALETTE["text_faint"]};font-size:11px;margin:4px 0">'
+                f'v{version_number} 已保存</div>'
+            )
+            self.version_map[version_id] = (version_number, data.get("design_json", "{}"))
+            self._load_versions()
+            if self.ws:
+                self.ws.close()
+                self.ws = None
+        elif msg_type == "error":
+            self.ws_streaming = False
+            self.input_field.setEnabled(True)
+            self._show_error(data.get("message", "未知错误"))
+            if self.ws:
+                self.ws.close()
+                self.ws = None
 
-    def _on_refine_error(self, error_msg):
+    def _on_ws_error(self, error_msg):
+        self.ws_streaming = False
         self.input_field.setEnabled(True)
         self._append_message("assistant", f"⚠️ {error_msg}")
         self._show_error(error_msg)
+        if self.ws:
+            self.ws.close()
+            self.ws = None
 
     # ── 版本 ──
 
