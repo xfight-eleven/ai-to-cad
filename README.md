@@ -15,7 +15,7 @@ AI 驱动的 AutoCAD 出图系统。设计师通过自然语言描述需求，AI
 | `server/` | Python FastAPI + SQLite | 项目/会话/版本管理、AI 对话、DWG 存档 |
 | `client/` | Python PySide6 + pywin32 | 桌面 UI、边界配置、AutoCAD COM 控制 |
 | `bridge/` | Python Flask + pywin32 | 旧版桥梁服务（客户端上线后废弃） |
-| `front.html` | 单文件 SPA | 原型验证用网页版（客户端上线后归档） |
+| `已删除` | 单文件 SPA | 原型验证用网页版（客户端上线后归档） |
 
 ## 快速开始 — 服务端
 
@@ -105,7 +105,7 @@ hsxb-ai-cad/
 │       └── config_manager.py  # 本地配置持久化
 │
 ├── bridge/                    # 旧版桥梁服务（Windows 专用）
-├── front.html                 # 原型网页（可归档）
+├── 已删除                 # 原型网页（可归档）
 └── AI-CAD-桥梁服务方案.md      # 详细设计文档
 ```
 

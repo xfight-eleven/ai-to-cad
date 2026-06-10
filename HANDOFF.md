@@ -15,7 +15,7 @@ AI 驱动的工业厂房 CAD 设计系统。设计师通过自然语言描述需
 
 - **服务端** (FastAPI)：用户认证、项目管理、AI 对话、版本树、DXF 导出、SVG 预览、DWG 上传/下载/存档、DeepSeek 集成
 - **桌面客户端** (PySide6)：完整代码已写好，约 1238 行，包含登录、项目列表、AI 对话面板、版本管理、AutoCAD COM 引擎
-- **网页原型** (front.html)：可正常运行，供参考
+- **网页原型** (已删除)：可正常运行，供参考
 - **项目文档**：README.md、STATUS.md、AI-CAD-桥梁服务方案.md
 
 ### ❌ 待完成
@@ -108,7 +108,7 @@ hsxb-ai-cad/
 │       ├── cad_engine.py    # AutoCAD COM 引擎
 │       └── config_manager.py # 本地配置
 ├── bridge/              # 旧版桥梁（废弃待定）
-├── front.html           # 网页原型（可归档）
+├── 已删除           # 网页原型（可归档）
 ├── README.md            # 项目说明
 ├── STATUS.md            # 开发状态
 └── AI-CAD-桥梁服务方案.md # 详细设计文档

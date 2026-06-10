@@ -109,7 +109,7 @@
 
 | 文件 | 功能 |
 |------|------|
-| `front.html` | 单文件 SPA（1695 行）：登录、项目列表、AI 对话、SVG 预览、版本管理、DXF 下载 |
+| `已删除` | 单文件 SPA（1695 行）：登录、项目列表、AI 对话、SVG 预览、版本管理、DXF 下载 |
 | `js/svg-pan-zoom.min.js` | SVG 缩放平移库 |
 | `css/fonts.css` | Web 字体（DM Sans + JetBrains Mono） |
 
@@ -197,7 +197,39 @@
 
 - 所有业务数据落在服务端，客户端仅存配置和 Token
 - 设计师换电脑登录后自动恢复全部历史
-- 前端原型 front.html 归档，index.html 作为唯一网页入口
+- 前端原型 已删除 归档，index.html 作为唯一网页入口
+
+
+## 七、今日完成 (2026-06-09)
+
+### 服务端新增
+
+| 功能 | 文件/接口 |
+|------|----------|
+| WebSocket 流式对话 | ws://host/api/design/ws/refine + stream_deepseek() |
+| 服务器配置存取 | /api/admin/server-config (GET/PUT) |
+| 管理员查看所有项目 | /api/admin/projects (GET) |
+| 管理员查看项目会话 | /api/admin/projects/{id}/sessions |
+| 管理员查看会话详情 | /api/admin/sessions/{id}/detail (对话+版本+DWG) |
+| LLM 测试免输 Key | /api/admin/llm-config/test-active |
+| DWG 文件存档 | 上传/下载/历史扫描 + 文件永久保留 |
+
+### 管理后台
+
+| 功能 | 说明 |
+|------|------|
+| 单页管理面板 | index.html 合并全部管理功能 |
+| 用户管理 | 新建/编辑/停用/启用/改密/删除 |
+| 设计边界 | 自然语言输入 + CRUD + 生效开关 |
+| 大模型配置 | 查看/修改/热切换/一键测通 |
+| 服务器配置 | IP/端口/客户端默认地址 |
+| 项目记录 | 浏览所有用户项目/会话/对话/DWG 下载 |
+
+### 设计决策确认
+
+- 所有业务数据落在服务端，客户端仅存配置和 Token
+- 设计师换电脑登录后自动恢复全部历史
+- 前端原型 已删除 归档，index.html 作为唯一网页入口
 
 ---
 
