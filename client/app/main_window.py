@@ -753,6 +753,11 @@ class MainWindow(QMainWindow):
                 self.version_tree.setItemWidget(item, 1, btn_w)
         except Exception as e:
             self._show_error(f"加载版本失败: {e}")
+        else:
+            # 自动选中最新版本以触发预览
+            if self.version_tree.topLevelItemCount() > 0:
+                last = self.version_tree.topLevelItem(self.version_tree.topLevelItemCount() - 1)
+                self.version_tree.setCurrentItem(last)
 
     def _push_to_cad(self, version_id: str):
         """推送到 AutoCAD。"""
