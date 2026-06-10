@@ -264,7 +264,10 @@ class MainWindow(QMainWindow):
         left_layout.setSpacing(8)
 
         # 用户信息
-        user_row = QHBoxLayout()
+        user_widget = QWidget()
+        user_widget.setFixedHeight(42)
+        user_row = QHBoxLayout(user_widget)
+        user_row.setContentsMargins(0, 0, 0, 0)
         user_label = QLabel(f"  {self.api.user.get('display_name', '用户')}")
         user_label.setStyleSheet("font-size:14px; font-weight:600;")
         user_row.addWidget(user_label)
@@ -273,7 +276,7 @@ class MainWindow(QMainWindow):
         btn_logout.setStyleSheet("padding:4px 10px; font-size:11px;")
         btn_logout.clicked.connect(self._logout)
         user_row.addWidget(btn_logout)
-        left_layout.addLayout(user_row)
+        left_layout.addWidget(user_widget)
 
         left_layout.addWidget(self._sep())
 
@@ -311,8 +314,9 @@ class MainWindow(QMainWindow):
         # 会话标题栏（可切换 + 新建）
         self.session_bar = QWidget()
         self.session_bar.setStyleSheet(f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};")
+        self.session_bar.setFixedHeight(42)
         sb_layout = QHBoxLayout(self.session_bar)
-        sb_layout.setContentsMargins(8, 4, 8, 4)
+        sb_layout.setContentsMargins(8, 0, 8, 0)
         sb_layout.setSpacing(2)
 
         self.session_tabs = QHBoxLayout()
