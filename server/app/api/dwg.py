@@ -155,3 +155,46 @@ def list_project_dwgs(
             })
 
     return {"project_id": project_id, "dwgs": result}
+
+@router.get("/versions/{version_id}/dwg/download")
+def download_version_dwg_by_token(
+    version_id: str,
+    token: str = None,
+    db: DbSession = Depends(get_db),
+):
+    """通过 token query 参数下载 DWG（用于 <a href> 链接）。"""
+    from app.services.auth_service import verify_token
+    from app.models import User
+
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "缺少 token")
+    try:
+        payload = verify_token(token)
+        user_id = payload.get("sub")
+    except Exception:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token 无效")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户不存在")
+
+    version = db.query(Version).filter(Version.id == version_id).first()
+    if not version:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "版本不存在")
+
+    session = db.query(Session).filter(Session.id == version.session_id).first()
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+    _verify_project(session.project_id, user, db)
+
+    # 优先从数据库路径读取
+    if version.dwg_file_path:
+        file_path = DWG_DIR.parent / version.dwg_file_path
+        if file_path.exists():
+            return FileResponse(str(file_path), filename=f"v{version.number}-{version.id[:8]}.dwg")
+
+    dwg_path = _get_dwg_path(session.project_id, session.id, version_id, version.number)
+    if dwg_path.exists():
+        return FileResponse(str(dwg_path), filename=f"v{version.number}-{version.id[:8]}.dwg")
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "该版本尚未同步 DWG 文件")
