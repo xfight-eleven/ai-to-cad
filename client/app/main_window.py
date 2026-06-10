@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
 
         # 用户信息
         user_widget = QWidget()
-        user_widget.setFixedHeight(42)
+        user_widget.setFixedHeight(40)
         user_row = QHBoxLayout(user_widget)
         user_row.setContentsMargins(0, 0, 0, 0)
         user_label = QLabel(f"  {self.api.user.get('display_name', '用户')}")
@@ -314,7 +314,7 @@ class MainWindow(QMainWindow):
         # 会话标题栏（可切换 + 新建）
         self.session_bar = QWidget()
         self.session_bar.setStyleSheet(f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};")
-        self.session_bar.setFixedHeight(42)
+        self.session_bar.setFixedHeight(40)
         sb_layout = QHBoxLayout(self.session_bar)
         sb_layout.setContentsMargins(8, 0, 8, 0)
         sb_layout.setSpacing(2)
