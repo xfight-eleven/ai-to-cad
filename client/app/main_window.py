@@ -896,7 +896,7 @@ class NewProjectDialog(QDialog):
         self.selected_ref: str = None
 
         self.setWindowTitle("新建项目")
-        self.setMinimumWidth(760)
+        self.setMinimumWidth(900)
         self.setMinimumHeight(500)
         self.setStyleSheet(f"""
         QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
