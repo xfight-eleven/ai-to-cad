@@ -189,8 +189,8 @@ class MainWindow(QMainWindow):
         self.version_map = {}  # version_id -> (number, design_json)
 
         self.setWindowTitle("AI CAD — 工业厂房设计助手")
-        self.setMinimumSize(1280, 800)
-        self.resize(1400, 880)
+        self.setMinimumSize(1400, 800)
+        self.resize(1600, 900)
         self.setStyleSheet(self._global_style())
 
         self._build_menu()
@@ -957,12 +957,13 @@ class NewProjectDialog(QDialog):
         left_col.addWidget(self.bound_search)
 
         self.bound_list = QListWidget()
-        self.bound_list.setSelectionMode(QListWidget.MultiSelection)
         try:
             for b in api.list_boundaries():
                 item = QListWidgetItem(b["name"])
                 item.setData(Qt.UserRole, b["id"])
                 item.setToolTip(b.get("description", ""))
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
                 self.bound_list.addItem(item)
         except Exception:
             self.bound_list.addItem("（无法加载）")
@@ -1032,11 +1033,11 @@ class NewProjectDialog(QDialog):
         if not title:
             QMessageBox.warning(self, "错误", "请输入项目名称")
             return
-        # 收集选中的边界
+        # 收集勾选的边界
         bids = []
         for i in range(self.bound_list.count()):
             item = self.bound_list.item(i)
-            if item.isSelected():
+            if item.checkState() == Qt.Checked:
                 bid = item.data(Qt.UserRole)
                 if bid:
                     bids.append(bid)
