@@ -40,7 +40,7 @@ PALETTE = {
     "text_dim":     "#98989E",
     "text_faint":   "#636368",
     "primary":      "#4F6EF7",
-    "primary_dim":  "rgba(79,110,247,0.15)",
+    "primary_dim":  "rgba(79,110,247,0.25)",
     "accent":       "#F9A825",
     "border":       "#2C2D31",
     "danger":       "#FF5252",
