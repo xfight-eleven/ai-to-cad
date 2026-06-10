@@ -189,8 +189,8 @@ class MainWindow(QMainWindow):
         self.version_map = {}  # version_id -> (number, design_json)
 
         self.setWindowTitle("AI CAD — 工业厂房设计助手")
-        self.setMinimumSize(1400, 800)
-        self.resize(1600, 900)
+        self.setMinimumSize(1100, 800)
+        self.resize(1200, 860)
         self.setStyleSheet(self._global_style())
 
         self._build_menu()
