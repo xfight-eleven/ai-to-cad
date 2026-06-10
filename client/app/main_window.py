@@ -754,10 +754,16 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._show_error(f"加载版本失败: {e}")
         else:
-            # 自动选中最新版本以触发预览
-            if self.version_tree.topLevelItemCount() > 0:
-                last = self.version_tree.topLevelItem(self.version_tree.topLevelItemCount() - 1)
+            # 自动选中最新版本并更新预览
+            count = self.version_tree.topLevelItemCount()
+            if count > 0:
+                last = self.version_tree.topLevelItem(count - 1)
                 self.version_tree.setCurrentItem(last)
+                # 直接触发预览
+                vid = last.data(0, Qt.UserRole)
+                if vid and vid in self.version_map:
+                    _, design_json = self.version_map[vid]
+                    self._update_preview(design_json)
 
     def _push_to_cad(self, version_id: str):
         """推送到 AutoCAD。"""
