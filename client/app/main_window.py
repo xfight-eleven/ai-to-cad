@@ -572,13 +572,16 @@ class MainWindow(QMainWindow):
                 f'<div style="color:{PALETTE["text_faint"]};font-size:11px;margin:4px 0">'
                 f'v{version_number} 已保存</div>'
             )
-            self.version_map[version_id] = (version_number, data.get("design_json", "{}"))
+            # saved 不含 design_json，用 _pending_design_json
+            dj = getattr(self, "_pending_design_json", "{}")
+            self.version_map[version_id] = (version_number, dj)
             self._load_versions()
+            self._pending_design_json = None
         elif msg_type == "error":
             self._show_error(data.get("message", "未知错误"))
         elif msg_type == "result":
-            # result 后通常跟着 saved
-            pass
+            # 保存 result 的 design_json 供 saved 使用
+            self._pending_design_json = data.get("design_json", "{}")
 
     def _on_ws_error(self, error_msg: str):
         self.ws_streaming = False
@@ -607,7 +610,6 @@ class MainWindow(QMainWindow):
     def _do_update_preview(self, design_json: str):
         self.preview_scene.clear()
         if not design_json:
-            print("PREVIEW: no design_json")
             return
         try:
             import json
