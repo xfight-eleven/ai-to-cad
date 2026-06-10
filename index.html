@@ -384,7 +384,7 @@ async function viewSession(sid) {
   msgHtml += '</div></div>';
   let verHtml = '<div class="panel"><div class="panel-header"><h3>版本记录 (' + data.versions.length + ' 个)</h3></div><table><thead><tr><th>版本</th><th>描述</th><th>日期</th><th>操作</th></tr></thead><tbody>';
   for (const v of data.versions) {
-    verHtml += '<tr><td>v' + v.number + '</td><td>' + (v.description||'—') + '</td><td>' + new Date(v.created_at).toLocaleString() + '</td><td><button class="btn btn-sm" onclick="window.open(BASE+\'/api/versions/' + v.id + '\',\'_blank\')">JSON</button> <a href="' + BASE + '/api/versions/' + v.id + '/dwg" class="btn btn-sm btn-ok">下载 DWG</a></td></tr>';
+    verHtml += '<tr><td>v' + v.number + '</td><td>' + (v.description||'—') + '</td><td>' + new Date(v.created_at).toLocaleString() + '</td><td><button class="btn btn-sm" onclick="window.open(BASE+\'/api/versions/' + v.id + '\',\'_blank\')">JSON</button> <a href="' + BASE + '/api/versions/' + v.id + '/dwg/download?token=' + token + '" class="btn btn-sm btn-ok">下载 DWG</a></td></tr>';
   }
   verHtml += '</tbody></table></div>';
   detail.innerHTML = msgHtml + verHtml;
