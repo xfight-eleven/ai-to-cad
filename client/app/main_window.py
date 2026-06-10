@@ -372,6 +372,8 @@ class MainWindow(QMainWindow):
         self.preview_view.setRenderHint(QPainter.Antialiasing)
         self.preview_view.setDragMode(QGraphicsView.ScrollHandDrag)
         self.preview_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.preview_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.preview_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.preview_scene = QGraphicsScene()
         self.preview_view.setScene(self.preview_scene)
         right_layout.addWidget(self.preview_view, 1)
@@ -381,6 +383,14 @@ class MainWindow(QMainWindow):
         # 比例设置
         splitter.setSizes([260, 860, 360])
         hlayout.addWidget(splitter)
+
+    def wheelEvent(self, event):
+        """滚轮缩放预览图。"""
+        if self.preview_view.underMouse():
+            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+            self.preview_view.scale(factor, factor)
+        else:
+            super().wheelEvent(event)
 
     def _sep(self):
         f = QFrame()
