@@ -9,49 +9,131 @@ import json
 import os
 import re
 import tempfile
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
-    QListWidget, QListWidgetItem, QLabel, QPushButton, QTextEdit,
-    QLineEdit, QDialog, QFormLayout, QCheckBox, QMessageBox,
-    QComboBox, QTreeWidget, QTreeWidgetItem, QFrame,
-    QApplication, QMenu, QInputDialog, QGroupBox, QScrollArea, QSizePolicy,
-    QHeaderView, QStyledItemDelegate,
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QIcon,
+    QPainter,
+    QPalette,
+    QPen,
+    QPixmap,
+    QPolygonF,
+    QTextCursor,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
-from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsTextItem
-from PySide6.QtCore import QRectF, QPointF
-from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QPolygonF
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QFrame,
+    QGraphicsEllipseItem,
+    QGraphicsPolygonItem,
+    QGraphicsRectItem,
+    QGraphicsScene,
+    QGraphicsTextItem,
+    QGraphicsView,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.api_client import APIClient
-from app.config_manager import load_config, save_credentials, clear_credentials, get_server_url
-from app.cad_engine import CadEngine, HAS_PYWIN32
+from app.cad_engine import HAS_PYWIN32, CadEngine
+from app.config_manager import (
+    clear_credentials,
+    get_server_url,
+    load_config,
+    save_credentials,
+)
 
 # ── 暗色主题调色板 ──
 PALETTE = {
-    "bg":           "#141517",
-    "sidebar":      "#1A1B1E",
-    "panel":        "#1E1F23",
-    "input_bg":     "#25262B",
-    "text":         "#E5E5EA",
-    "text_dim":     "#98989E",
-    "text_faint":   "#636368",
-    "primary":      "#4F6EF7",
-    "primary_dim":  "rgba(79,110,247,0.25)",
-    "accent":       "#F9A825",
-    "border":       "#2C2D31",
-    "danger":       "#FF5252",
-    "success":      "#4CAF50",
-    "user_bubble":  "rgba(79,110,247,0.12)",
-    "ai_bubble":    "rgba(229,229,234,0.05)",
+    "bg": "#141517",
+    "sidebar": "#1A1B1E",
+    "panel": "#1E1F23",
+    "input_bg": "#25262B",
+    "text": "#E5E5EA",
+    "text_dim": "#98989E",
+    "text_faint": "#636368",
+    "primary": "#4F6EF7",
+    "primary_dim": "rgba(79,110,247,0.25)",
+    "accent": "#F9A825",
+    "border": "#2C2D31",
+    "danger": "#FF5252",
+    "success": "#4CAF50",
+    "user_bubble": "rgba(79,110,247,0.12)",
+    "ai_bubble": "rgba(229,229,234,0.05)",
 }
+
+
+class VersionItemDelegate(QStyledItemDelegate):
+    """版本表格委托：绘制边框 + 只高亮当前选中的版本（而非整行）。"""
+
+    def __init__(self, tree_widget):
+        super().__init__(tree_widget)
+        self.tree = tree_widget
+
+    def paint(self, painter, option, index):
+        row, col = index.row(), index.column()
+        border = PALETTE["border"]
+
+        # 判断该 cell 是否属于选中版本
+        data_col = 0 if col <= 1 else 2
+        vid = index.sibling(index.row(), data_col).data(Qt.UserRole)
+        is_sel = vid and vid == getattr(self.tree, "_sel_version_id", None)
+
+        # 绘制背景
+        if is_sel:
+            painter.save()
+            painter.fillRect(option.rect, QColor(249, 168, 37))
+            painter.restore()
+
+        # 让 Qt 绘制文字
+        super().paint(painter, option, index)
+
+        # 边框（右 + 下），始终绘制在 item 之上
+        painter.save()
+        pen = QPen(QColor(border), 1)
+        painter.setPen(pen)
+        r = option.rect
+        # 列之间右竖线（最后一列不画）
+        if col in (0, 1, 2):
+            painter.drawLine(r.right(), r.top(), r.right(), r.bottom())
+        # 行底部分隔线
+        painter.drawLine(r.left(), r.bottom(), r.right(), r.bottom())
+        painter.restore()
 
 
 class DWGUploadWorker(QThread):
     """后台线程：上传 DWG 到服务器。"""
+
     finished = Signal(dict)
     error = Signal(str)
 
@@ -87,7 +169,9 @@ class SettingsDialog(QDialog):
         btn_test = QPushButton("测试连接")
         btn_test.clicked.connect(self._test)
         btn_save = QPushButton("保存")
-        btn_save.setStyleSheet(f"background:{PALETTE['primary']};color:#fff;padding:6px 20px;")
+        btn_save.setStyleSheet(
+            f"background:{PALETTE['primary']};color:#fff;padding:6px 20px;"
+        )
         btn_save.clicked.connect(self._save)
 
         layout = QVBoxLayout(self)
@@ -118,23 +202,24 @@ class SettingsDialog(QDialog):
         config = load_config()
         config["server_url"] = url
         from app.config_manager import save_config
+
         save_config(config)
         self.accept()
 
     def _style(self):
         return f"""
-        QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
-        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; padding:8px; border-radius:4px; }}
-        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; padding:8px 16px; border-radius:4px; }}
-        QLabel {{ color:{PALETTE['text']}; }}
+        QDialog {{ background:{PALETTE["bg"]}; color:{PALETTE["text"]}; }}
+        QLineEdit {{ background:{PALETTE["input_bg"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; padding:8px; border-radius:4px; }}
+        QPushButton {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; padding:8px 16px; border-radius:4px; }}
+        QLabel {{ color:{PALETTE["text"]}; }}
         """
-
 
 
 class WsStreamWorker(QThread):
     """后台线程：WebSocket 流式调用 AI。"""
+
     token_received = Signal(str)
     finished = Signal(dict)
     error = Signal(str)
@@ -147,8 +232,9 @@ class WsStreamWorker(QThread):
     def run(self):
         try:
             import asyncio
-            import websockets
             import json
+
+            import websockets
 
             async def connect():
                 async with websockets.connect(self.ws_url) as ws:
@@ -173,6 +259,7 @@ class WsStreamWorker(QThread):
             return
             self.error.emit(str(e))
 
+
 class MainWindow(QMainWindow):
     """桌面客户端主窗口。"""
 
@@ -187,6 +274,7 @@ class MainWindow(QMainWindow):
         self.dwg_worker = None
         self.ws_streaming = False
         self.version_map = {}  # version_id -> (number, design_json)
+        # _sel_version_id 在 _build_ui 中设置到 version_tree 上
 
         self.setWindowTitle("AI CAD — 工业厂房设计助手")
         self.setMinimumSize(1100, 800)
@@ -201,48 +289,53 @@ class MainWindow(QMainWindow):
 
     def _global_style(self):
         return f"""
-        QMainWindow {{ background:{PALETTE['bg']}; }}
-        QSplitter::handle {{ background:{PALETTE['border']}; width:1px; }}
-        QScrollBar:vertical {{ background:{PALETTE['bg']}; width:6px; }}
-        QScrollBar::handle:vertical {{ background:{PALETTE['text_faint']}; border-radius:3px; min-height:30px; }}
+        QMainWindow {{ background:{PALETTE["bg"]}; }}
+        QSplitter::handle {{ background:{PALETTE["border"]}; width:1px; }}
+        QScrollBar:vertical {{ background:{PALETTE["bg"]}; width:6px; }}
+        QScrollBar::handle:vertical {{ background:{PALETTE["text_faint"]}; border-radius:3px; min-height:30px; }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
-        QTreeWidget {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:none;
+        QTreeWidget {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]}; border:none;
             font-size:13px; }}
         QTreeWidget::item {{ padding:6px 8px; }}
         QTreeWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
-        QTreeWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
-        QTreeWidget QHeaderView::section {{ background:{PALETTE['sidebar']};
-            color:{PALETTE['text_dim']}; border:none; padding:6px 8px; font-size:11px; }}
-        QListWidget {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:none;
+        QTreeWidget::item:selected {{ background:{PALETTE["primary_dim"]}; }}
+        QTreeWidget QHeaderView::section {{ background:{PALETTE["sidebar"]};
+            color:{PALETTE["text_dim"]}; border:none; padding:6px 8px; font-size:11px; }}
+        QListWidget {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]}; border:none;
             font-size:13px; outline:none; }}
         QListWidget::item {{ padding:8px 12px; }}
         QListWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
-        QListWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
-        QTextEdit {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:1px solid {PALETTE['border']};
+        QListWidget::item:selected {{ background:{PALETTE["primary_dim"]}; }}
+        QTextEdit {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]}; border:1px solid {PALETTE["border"]};
             border-radius:6px; padding:8px; font-size:13px; }}
-        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; border-radius:6px; padding:10px; font-size:13px; }}
-        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; border-radius:4px; padding:6px 14px; font-size:12px; }}
-        QPushButton:hover {{ border-color:{PALETTE['primary']}; }}
-        QComboBox {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; border-radius:4px; padding:6px; font-size:12px; }}
-        QGroupBox {{ color:{PALETTE['text_dim']}; border:1px solid {PALETTE['border']};
+        QLineEdit {{ background:{PALETTE["input_bg"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; border-radius:6px; padding:10px; font-size:13px; }}
+        QPushButton {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; border-radius:4px; padding:6px 14px; font-size:12px; }}
+        QPushButton:hover {{ border-color:{PALETTE["primary"]}; }}
+        QComboBox {{ background:{PALETTE["input_bg"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; border-radius:4px; padding:6px; font-size:12px; }}
+        QGroupBox {{ color:{PALETTE["text_dim"]}; border:1px solid {PALETTE["border"]};
             border-radius:6px; margin-top:12px; padding-top:12px; font-size:12px; }}
-        QCheckBox {{ color:{PALETTE['text']}; font-size:12px; }}
-        QLabel {{ color:{PALETTE['text']}; }}
+        QCheckBox {{ color:{PALETTE["text"]}; font-size:12px; }}
+        QLabel {{ color:{PALETTE["text"]}; }}
         """
 
     # ── 菜单栏 ──
 
     def _build_menu(self):
         mb = self.menuBar()
-        mb.setStyleSheet(f"background:{PALETTE['sidebar']}; color:{PALETTE['text']}; border:none;")
+        mb.setStyleSheet(
+            f"background:{PALETTE['sidebar']}; color:{PALETTE['text']}; border:none;"
+        )
         file_menu = mb.addMenu("文件")
         file_menu.addAction("服务器设置", self._show_settings)
         file_menu.addAction("退出", self.close)
         help_menu = mb.addMenu("帮助")
-        help_menu.addAction("关于", lambda: QMessageBox.about(self, "关于", "AI CAD 工业厂房设计助手 v1.0"))
+        help_menu.addAction(
+            "关于",
+            lambda: QMessageBox.about(self, "关于", "AI CAD 工业厂房设计助手 v1.0"),
+        )
 
     # ── 主 UI ──
 
@@ -260,35 +353,33 @@ class MainWindow(QMainWindow):
         left_panel.setFixedWidth(260)
         left_panel.setStyleSheet(f"background:{PALETTE['sidebar']};")
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(12, 12, 12, 12)
-        left_layout.setSpacing(8)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
 
-        # 用户信息
-        user_widget = QWidget()
-        user_widget.setFixedHeight(40)
-        user_row = QHBoxLayout(user_widget)
-        user_row.setContentsMargins(0, 0, 0, 0)
+        # 顶栏：左侧（用户信息 + 新建 + 退出）→ 46px，底部边线
+        top_bar = QWidget()
+        top_bar.setFixedHeight(46)
+        top_bar.setStyleSheet(
+            f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};"
+        )
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(12, 0, 12, 0)
+        top_layout.setSpacing(4)
+
         user_label = QLabel(f"  {self.api.user.get('display_name', '用户')}")
-        user_label.setStyleSheet("font-size:14px; font-weight:600;")
-        user_row.addWidget(user_label)
-        user_row.addStretch()
-        btn_logout = QPushButton("退出")
-        btn_logout.setStyleSheet("padding:4px 10px; font-size:11px;")
-        btn_logout.clicked.connect(self._logout)
-        user_row.addWidget(btn_logout)
-        left_layout.addWidget(user_widget)
+        user_label.setStyleSheet("font-size:13px; font-weight:600;")
+        top_layout.addWidget(user_label)
 
-        left_layout.addWidget(self._sep())
+        top_layout.addStretch()
 
-        # 标题 + 新建
-        title_row = QHBoxLayout()
-        title_row.addWidget(QLabel("项目列表"))
         btn_new = QPushButton("+ 新建")
-        btn_new.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; padding:4px 12px; font-size:11px;")
+        btn_new.setStyleSheet(
+            f"background:{PALETTE['primary']}; color:#fff; padding:4px 12px; font-size:11px;"
+        )
         btn_new.clicked.connect(self._new_project)
-        title_row.addStretch()
-        title_row.addWidget(btn_new)
-        left_layout.addLayout(title_row)
+        top_layout.addWidget(btn_new)
+
+        left_layout.addWidget(top_bar)
 
         self.project_list = QListWidget()
         self.project_list.currentItemChanged.connect(self._on_project_selected)
@@ -298,8 +389,6 @@ class MainWindow(QMainWindow):
         pal.setColor(QPalette.Inactive, QPalette.HighlightedText, QColor("#E5E5EA"))
         self.project_list.setPalette(pal)
         left_layout.addWidget(self.project_list)
-
-
 
         left_layout.addStretch()
 
@@ -313,8 +402,10 @@ class MainWindow(QMainWindow):
 
         # 会话标题栏（可切换 + 新建）
         self.session_bar = QWidget()
-        self.session_bar.setStyleSheet(f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};")
-        self.session_bar.setFixedHeight(40)
+        self.session_bar.setStyleSheet(
+            f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};"
+        )
+        self.session_bar.setFixedHeight(46)
         sb_layout = QHBoxLayout(self.session_bar)
         sb_layout.setContentsMargins(8, 0, 8, 0)
         sb_layout.setSpacing(2)
@@ -340,7 +431,9 @@ class MainWindow(QMainWindow):
 
         # 输入区
         input_frame = QFrame()
-        input_frame.setStyleSheet(f"background:{PALETTE['sidebar']}; border-top:1px solid {PALETTE['border']};")
+        input_frame.setStyleSheet(
+            f"background:{PALETTE['sidebar']}; border-top:1px solid {PALETTE['border']};"
+        )
         input_layout = QHBoxLayout(input_frame)
         input_layout.setContentsMargins(12, 8, 12, 8)
 
@@ -350,7 +443,9 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.input_field)
 
         btn_send = QPushButton("发送")
-        btn_send.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; padding:8px 18px; font-weight:600;")
+        btn_send.setStyleSheet(
+            f"background:{PALETTE['primary']}; color:#fff; padding:8px 18px; font-weight:600;"
+        )
         btn_send.clicked.connect(self._send_message)
         input_layout.addWidget(btn_send)
 
@@ -362,22 +457,77 @@ class MainWindow(QMainWindow):
         right_panel.setMinimumWidth(320)
         right_panel.setStyleSheet(f"background:{PALETTE['sidebar']};")
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(8, 8, 8, 8)
-        right_layout.setSpacing(6)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
 
-        # 版本树
+        # 右侧顶栏 → 46px，底部边线
+        right_top = QWidget()
+        right_top.setFixedHeight(46)
+        right_top.setStyleSheet(
+            f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};"
+        )
+        right_top_layout = QHBoxLayout(right_top)
+        right_top_layout.setContentsMargins(12, 0, 8, 0)
+        right_label = QLabel("版本")
+        right_label.setStyleSheet("font-size:13px; font-weight:600;")
+        right_top_layout.addWidget(right_label)
+        right_top_layout.addStretch()
+
+        btn_logout = QPushButton("退出")
+        btn_logout.setStyleSheet("padding:4px 10px; font-size:11px;")
+        btn_logout.clicked.connect(self._logout)
+        right_top_layout.addWidget(btn_logout)
+
+        right_layout.addWidget(right_top)
+
+        # 内容区（可滚动）
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{ border:none; background:{PALETTE['sidebar']}; }}
+            QScrollBar:vertical {{ background:{PALETTE['bg']}; width:6px; }}
+            QScrollBar::handle:vertical {{ background:{PALETTE['text_faint']}; border-radius:3px; min-height:30px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
+        """)
+
+        right_content = QWidget()
+        right_content_layout = QVBoxLayout(right_content)
+        right_content_layout.setContentsMargins(8, 8, 8, 8)
+        right_content_layout.setSpacing(6)
+
+        # 版本树（两列一对，每行展示两个版本）
         self.version_tree = QTreeWidget()
-        self.version_tree.setHeaderLabels(["版本", "操作"])
-        self.version_tree.setColumnWidth(0, 100)
-        self.version_tree.setColumnWidth(1, 90)
-        self.version_tree.header().setStretchLastSection(True)
-        self.version_tree.setMaximumHeight(200)
-        self.version_tree.currentItemChanged.connect(self._on_version_selected)
-        right_layout.addWidget(self.version_tree)
+        self.version_tree.setHeaderLabels(["版本", "操作", "版本", "操作"])
+        self.version_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.version_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.version_tree.header().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.version_tree.header().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.version_tree.header().setStretchLastSection(False)
+        self.version_tree.header().setDefaultAlignment(Qt.AlignCenter)
+        self.version_tree.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.version_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.version_tree.setSelectionMode(QAbstractItemView.NoSelection)
+        self.version_tree._sel_version_id = None
+        self.version_tree.setItemDelegate(VersionItemDelegate(self.version_tree))
+        self.version_tree.setStyleSheet(f"""
+            QTreeWidget {{ border:1px solid {PALETTE['border']}; }}
+            QTreeWidget QHeaderView::section {{
+                background:{PALETTE['sidebar']};
+                color:{PALETTE['text_dim']}; border:none; font-size:11px;
+                border-bottom:1px solid {PALETTE['border']};
+                border-right:1px solid {PALETTE['border']};
+                padding:0px; }}
+            QTreeWidget QHeaderView::section:last {{ border-right:none; }}
+        """)
+        self.version_tree.itemClicked.connect(self._on_version_selected)
+        right_content_layout.addWidget(self.version_tree)
 
         # 预览图
         self.preview_view = QGraphicsView()
-        self.preview_view.setStyleSheet(f"background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:6px;")
+        self.preview_view.setStyleSheet(
+            f"background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:6px;"
+        )
         self.preview_view.setRenderHint(QPainter.Antialiasing)
         self.preview_view.setDragMode(QGraphicsView.ScrollHandDrag)
         self.preview_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
@@ -385,7 +535,10 @@ class MainWindow(QMainWindow):
         self.preview_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.preview_scene = QGraphicsScene()
         self.preview_view.setScene(self.preview_scene)
-        right_layout.addWidget(self.preview_view, 1)
+        right_content_layout.addWidget(self.preview_view, 1)
+
+        scroll_area.setWidget(right_content)
+        right_layout.addWidget(scroll_area, 1)
 
         splitter.addWidget(right_panel)
 
@@ -455,7 +608,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             return
             import traceback
-            self._show_error(f"加载会话失败:\n{str(e)}\n\n{traceback.format_exc()[-200:]}")
+
+            self._show_error(
+                f"加载会话失败:\n{str(e)}\n\n{traceback.format_exc()[-200:]}"
+            )
 
     def _render_session_tabs(self, sessions):
         # Clear tabs
@@ -468,14 +624,36 @@ class MainWindow(QMainWindow):
             btn = QPushButton(s["title"])
             btn.setCheckable(True)
             btn.setStyleSheet(
-                "QPushButton { background:" + PALETTE["panel"] + "; color:" + PALETTE["text_dim"] + "; border:1px solid " + PALETTE["border"] + ";"
+                "QPushButton { background:"
+                + PALETTE["panel"]
+                + "; color:"
+                + PALETTE["text_dim"]
+                + "; border:1px solid "
+                + PALETTE["border"]
+                + ";"
                 " padding:3px 10px; border-radius:3px; font-size:12px; margin-right:2px; }"
-                " QPushButton:hover { border-color:" + PALETTE["primary"] + "; color:" + PALETTE["text"] + "; }"
-                " QPushButton:checked { background:" + PALETTE["primary_dim"] + "; color:" + PALETTE["text"] + "; border-color:" + PALETTE["primary"] + "; }"
+                " QPushButton:hover { border-color:"
+                + PALETTE["primary"]
+                + "; color:"
+                + PALETTE["text"]
+                + "; }"
+                " QPushButton:checked { background:"
+                + PALETTE["primary_dim"]
+                + "; color:"
+                + PALETTE["text"]
+                + "; border-color:"
+                + PALETTE["primary"]
+                + "; }"
             )
-            btn.clicked.connect(lambda checked, sid=s["id"], title=s["title"]: self._switch_session(sid, title))
+            btn.clicked.connect(
+                lambda checked, sid=s["id"], title=s["title"]: self._switch_session(
+                    sid, title
+                )
+            )
             btn.setContextMenuPolicy(Qt.CustomContextMenu)
-            btn.customContextMenuRequested.connect(lambda pos, b=btn, sid=s["id"]: self._show_tab_menu(pos, b, sid))
+            btn.customContextMenuRequested.connect(
+                lambda pos, b=btn, sid=s["id"]: self._show_tab_menu(pos, b, sid)
+            )
             self.session_tabs.addWidget(btn)
         self.btn_add_session.setVisible(True)
 
@@ -541,7 +719,7 @@ class MainWindow(QMainWindow):
         timestamp = datetime.now().strftime("%H:%M")
         html = f'<div style="margin:8px 0;"><span style="color:{color};font-weight:600;">{prefix}</span>'
         html += f' <span style="color:{PALETTE["text_faint"]};font-size:11px;">{timestamp}</span><br>'
-        html += f'{content}</div>'
+        html += f"{content}</div>"
         if version_id:
             html += f'<div style="color:{PALETTE["text_faint"]};font-size:11px;">版本: {version_id[:8]}</div>'
         self.chat_area.insertHtml(html)
@@ -562,10 +740,14 @@ class MainWindow(QMainWindow):
         self.input_field.setEnabled(False)
         self.ws_streaming = True
 
-        ws_url = self.api.base_url.replace("http://", "ws://").replace("https://", "wss://")
+        ws_url = self.api.base_url.replace("http://", "ws://").replace(
+            "https://", "wss://"
+        )
         ws_url += f"/api/design/ws/refine?token={self.api.token}"
 
-        self.worker = WsStreamWorker(ws_url, {"session_id": self.current_session_id, "prompt": prompt})
+        self.worker = WsStreamWorker(
+            ws_url, {"session_id": self.current_session_id, "prompt": prompt}
+        )
         self.worker.token_received.connect(self._on_ws_token)
         self.worker.finished.connect(self._on_ws_result)
         self.worker.error.connect(self._on_ws_error)
@@ -593,7 +775,7 @@ class MainWindow(QMainWindow):
             version_number = data.get("version_number", 0)
             self.chat_area.insertHtml(
                 f'<div style="color:{PALETTE["text_faint"]};font-size:11px;margin:4px 0">'
-                f'v{version_number} 已保存</div>'
+                f"v{version_number} 已保存</div>"
             )
             # saved 不含 design_json，用 _pending_design_json
             dj = getattr(self, "_pending_design_json", "{}")
@@ -613,13 +795,20 @@ class MainWindow(QMainWindow):
 
     # ── 版本 ──
 
-    def _on_version_selected(self, item):
-        """选中版本时更新预览。"""
+    def _on_version_selected(self, item, column=0):
+        """选中版本时更新预览。column 决定取左半（0/1）还是右半（2/3）。"""
         if not item:
             return
-        vid = item.data(0, Qt.UserRole)
+        # 点击操作列时，取同行的版本列
+        data_col = 0 if column <= 1 else 2
+        vid = item.data(data_col, Qt.UserRole)
         if not vid:
             return
+
+        # 清除上一轮高亮 + 标记当前选中
+        self._clear_version_highlight()
+        self.version_tree._sel_version_id = vid
+        self.version_tree.viewport().update()
 
         # 从缓存获取 design_json
         if vid in self.version_map:
@@ -637,6 +826,11 @@ class MainWindow(QMainWindow):
         except Exception as e:
             pass
 
+    def _clear_version_highlight(self):
+        """清除所有版本高亮。"""
+        self.version_tree._sel_version_id = None
+        self.version_tree.viewport().update()
+
     def _update_preview(self, design_json: str):
         """渲染设计 JSON 到预览区。"""
         try:
@@ -650,6 +844,7 @@ class MainWindow(QMainWindow):
             return
         try:
             import json
+
             design = json.loads(design_json)
         except Exception as e:
             return
@@ -658,7 +853,12 @@ class MainWindow(QMainWindow):
             return
 
         # 计算边界
-        min_x, min_y, max_x, max_y = float("inf"), float("inf"), float("-inf"), float("-inf")
+        min_x, min_y, max_x, max_y = (
+            float("inf"),
+            float("inf"),
+            float("-inf"),
+            float("-inf"),
+        )
 
         for b in buildings:
             el, bx, by, bw, bh = self._building_to_scene(b)
@@ -673,8 +873,9 @@ class MainWindow(QMainWindow):
 
         # 缩放适配
         pad = max(max_x - min_x, max_y - min_y) * 0.15
-        self.preview_scene.setSceneRect(min_x - pad, min_y - pad,
-                                         max_x - min_x + pad * 2, max_y - min_y + pad * 2)
+        self.preview_scene.setSceneRect(
+            min_x - pad, min_y - pad, max_x - min_x + pad * 2, max_y - min_y + pad * 2
+        )
         self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
 
     def _building_to_scene(self, building: dict):
@@ -694,9 +895,11 @@ class MainWindow(QMainWindow):
         group = []
 
         # 外墙
-        rect = self.preview_scene.addRect(QRectF(x, y, w, h),
+        rect = self.preview_scene.addRect(
+            QRectF(x, y, w, h),
             QPen(QColor("#4F6EF7"), 0.15),
-            QBrush(QColor(79, 110, 247, 30)))
+            QBrush(QColor(79, 110, 247, 30)),
+        )
         group.append(rect)
 
         # 建筑名
@@ -715,9 +918,11 @@ class MainWindow(QMainWindow):
                 continue
             zpos = zone.get("position", "").lower()
             zx, zy = self._zone_pos(zpos, x, y, w, h, zw, zl)
-            zr = self.preview_scene.addRect(QRectF(zx, zy, zw, zl),
+            zr = self.preview_scene.addRect(
+                QRectF(zx, zy, zw, zl),
                 QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
-                QBrush(QColor(249, 168, 37, 20)))
+                QBrush(QColor(249, 168, 37, 20)),
+            )
             group.append(zr)
             zn = zone.get("name", "")
             if zn:
@@ -739,9 +944,11 @@ class MainWindow(QMainWindow):
                 if dw <= 0 or dl <= 0:
                     continue
                 dx, dy = self._zone_pos(pos_key, x, y, w, h, dw, dl)
-                dr = self.preview_scene.addRect(QRectF(dx, dy, dw, dl),
+                dr = self.preview_scene.addRect(
+                    QRectF(dx, dy, dw, dl),
                     QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
-                    QBrush(QColor(249, 168, 37, 20)))
+                    QBrush(QColor(249, 168, 37, 20)),
+                )
                 group.append(dr)
 
         # 房间
@@ -752,8 +959,10 @@ class MainWindow(QMainWindow):
             rl = room.get("length", 0) or 0
             if rw <= 0 or rl <= 0:
                 continue
-            rr = self.preview_scene.addRect(QRectF(x + rx, y + ry, rw, rl),
-                QPen(QColor(123, 140, 255, 100), 0.08, Qt.DashLine))
+            rr = self.preview_scene.addRect(
+                QRectF(x + rx, y + ry, rw, rl),
+                QPen(QColor(123, 140, 255, 100), 0.08, Qt.DashLine),
+            )
             group.append(rr)
 
         return group, x, y, w, h
@@ -778,34 +987,31 @@ class MainWindow(QMainWindow):
         try:
             detail = self.api.get_session(self.current_session_id)
             versions = detail.get("versions", [])
-            for v in versions:
-                dj = v.get("design_json", "")
-                if not dj or dj == "{}":
-                    # API 版本列表不含 design_json，保留已有的
-                    if v["id"] not in self.version_map:
-                        self.version_map[v["id"]] = (v["number"], "")
-                    else:
-                        _, existing_dj = self.version_map[v["id"]]
-                        self.version_map[v["id"]] = (v["number"], existing_dj)
-                else:
-                    self.version_map[v["id"]] = (v["number"], dj)
+            # 两两配对，每行两个版本
+            for i in range(0, len(versions), 2):
+                v1 = versions[i]
+                # 确保 version_map 中有 v1
+                self._cache_version(v1)
+
                 item = QTreeWidgetItem(self.version_tree)
-                item.setText(0, f"v{v['number']}")
-                item.setData(0, Qt.UserRole, v["id"])
-                item.setToolTip(0, f"v{v['number']} — {v.get('description', '')}")
+                item.setSizeHint(0, QSize(0, 40))
 
-                # 操作按钮容器
-                btn_w = QWidget()
-                btn_layout = QHBoxLayout(btn_w)
-                btn_layout.setContentsMargins(0, 0, 0, 0)
-                btn_layout.setSpacing(4)
+                # 第一对（列0-1）
+                item.setText(0, f"v{v1['number']}")
+                item.setData(0, Qt.UserRole, v1["id"])
+                item.setTextAlignment(0, Qt.AlignCenter)
+                item.setToolTip(0, f"v{v1['number']} — {v1.get('description', '')}")
+                self._set_version_btn(item, 1, v1["id"])
 
-                btn_cad = QPushButton("推CAD")
-                btn_cad.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; font-size:11px; padding:2px 8px;")
-                btn_cad.clicked.connect(lambda checked, vid=v["id"]: self._push_to_cad(vid))
-                btn_layout.addWidget(btn_cad)
-
-                self.version_tree.setItemWidget(item, 1, btn_w)
+                # 第二对（列2-3）
+                if i + 1 < len(versions):
+                    v2 = versions[i + 1]
+                    self._cache_version(v2)
+                    item.setText(2, f"v{v2['number']}")
+                    item.setData(2, Qt.UserRole, v2["id"])
+                    item.setTextAlignment(2, Qt.AlignCenter)
+                    item.setToolTip(2, f"v{v2['number']} — {v2.get('description', '')}")
+                    self._set_version_btn(item, 3, v2["id"])
         except Exception as e:
             return
             self._show_error(f"加载版本失败: {e}")
@@ -814,12 +1020,39 @@ class MainWindow(QMainWindow):
             count = self.version_tree.topLevelItemCount()
             if count > 0:
                 last = self.version_tree.topLevelItem(count - 1)
-                self.version_tree.setCurrentItem(last)
-                # 直接触发预览
-                vid = last.data(0, Qt.UserRole)
-                if vid and vid in self.version_map:
-                    _, design_json = self.version_map[vid]
-                    self._update_preview(design_json)
+                has_v2 = bool(last.data(2, Qt.UserRole))
+                col = 2 if has_v2 else 0
+                self._on_version_selected(last, col)
+
+    def _cache_version(self, v: dict):
+        """缓存版本 design_json。"""
+        dj = v.get("design_json", "")
+        if not dj or dj == "{}":
+            if v["id"] not in self.version_map:
+                self.version_map[v["id"]] = (v["number"], "")
+            else:
+                _, existing_dj = self.version_map[v["id"]]
+                self.version_map[v["id"]] = (v["number"], existing_dj)
+        else:
+            self.version_map[v["id"]] = (v["number"], dj)
+
+    def _set_version_btn(self, item: QTreeWidgetItem, col: int, vid: str):
+        """在指定列添加推CAD按钮（居中、固定宽度55px）。"""
+        btn_w = QWidget()
+        btn_layout = QHBoxLayout(btn_w)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.addStretch()
+        btn_cad = QPushButton("推CAD")
+        btn_cad.setFixedWidth(55)
+        btn_cad.setStyleSheet(
+            f"background:{PALETTE['primary']}; color:#fff; font-size:11px; padding:2px 6px;"
+        )
+        btn_cad.clicked.connect(
+            lambda checked, vid=vid: self._push_to_cad(vid)
+        )
+        btn_layout.addWidget(btn_cad)
+        btn_layout.addStretch()
+        self.version_tree.setItemWidget(item, col, btn_w)
 
     def _push_to_cad(self, version_id: str):
         """推送到 AutoCAD。"""
@@ -847,12 +1080,18 @@ class MainWindow(QMainWindow):
             saved = self.cad_engine.save_as_dwg(str(dwg_path))
 
             # 上传到服务器
-            self._append_message("assistant", f"📐 已推送到 AutoCAD\n💾 本地: {saved}", version_id)
+            self._append_message(
+                "assistant", f"📐 已推送到 AutoCAD\n💾 本地: {saved}", version_id
+            )
 
             # 异步上传
             self.dwg_worker = DWGUploadWorker(self.api, version_id, saved)
-            self.dwg_worker.finished.connect(lambda r: self._append_message("assistant", "☁️ 已同步到服务器"))
-            self.dwg_worker.error.connect(lambda e: self._append_message("assistant", f"⚠️ 同步失败: {e}"))
+            self.dwg_worker.finished.connect(
+                lambda r: self._append_message("assistant", "☁️ 已同步到服务器")
+            )
+            self.dwg_worker.error.connect(
+                lambda e: self._append_message("assistant", f"⚠️ 同步失败: {e}")
+            )
             self.dwg_worker.start()
 
         except Exception as e:
@@ -908,22 +1147,22 @@ class NewProjectDialog(QDialog):
         self.setMinimumWidth(900)
         self.setMinimumHeight(500)
         self.setStyleSheet(f"""
-        QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
-        QLabel {{ color:{PALETTE['text']}; font-size:13px; }}
-        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; padding:10px; border-radius:6px; font-size:14px; }}
-        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; padding:6px 16px; border-radius:4px; font-size:13px; }}
-        QPushButton:hover {{ border-color:{PALETTE['primary']}; }}
-        QComboBox {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; border-radius:4px; padding:6px; }}
-        QCheckBox {{ color:{PALETTE['text']}; font-size:13px; spacing:8px; }}
-        QScrollArea {{ border:none; background:{PALETTE['panel']}; border-radius:6px; }}
-        QListWidget {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
+        QDialog {{ background:{PALETTE["bg"]}; color:{PALETTE["text"]}; }}
+        QLabel {{ color:{PALETTE["text"]}; font-size:13px; }}
+        QLineEdit {{ background:{PALETTE["input_bg"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; padding:10px; border-radius:6px; font-size:14px; }}
+        QPushButton {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; padding:6px 16px; border-radius:4px; font-size:13px; }}
+        QPushButton:hover {{ border-color:{PALETTE["primary"]}; }}
+        QComboBox {{ background:{PALETTE["input_bg"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; border-radius:4px; padding:6px; }}
+        QCheckBox {{ color:{PALETTE["text"]}; font-size:13px; spacing:8px; }}
+        QScrollArea {{ border:none; background:{PALETTE["panel"]}; border-radius:6px; }}
+        QListWidget {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]};
             border:none; font-size:13px; outline:none; }}
-        QListWidget::item {{ padding:8px 12px; border-bottom:1px solid {PALETTE['border']}; }}
+        QListWidget::item {{ padding:8px 12px; border-bottom:1px solid {PALETTE["border"]}; }}
         QListWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
-        QListWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
+        QListWidget::item:selected {{ background:{PALETTE["primary_dim"]}; }}
         """)
 
         layout = QVBoxLayout(self)
@@ -931,12 +1170,15 @@ class NewProjectDialog(QDialog):
         layout.setSpacing(16)
 
         # 标题
-        title_row = QHBoxLayout()
+        title_bar = QWidget()
+        title_bar.setFixedHeight(40)
+        title_row = QHBoxLayout(title_bar)
+        title_row.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel("新建项目")
         title_label.setStyleSheet("font-size:18px; font-weight:700;")
         title_row.addWidget(title_label)
         title_row.addStretch()
-        layout.addLayout(title_row)
+        layout.addWidget(title_bar)
 
         # 项目名称
         name_layout = QHBoxLayout()
@@ -1020,7 +1262,9 @@ class NewProjectDialog(QDialog):
         btn_cancel = QPushButton("取消")
         btn_cancel.clicked.connect(self.reject)
         self.btn_create = QPushButton("创建项目")
-        self.btn_create.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; font-weight:600; padding:8px 24px;")
+        self.btn_create.setStyleSheet(
+            f"background:{PALETTE['primary']}; color:#fff; font-weight:600; padding:8px 24px;"
+        )
         self.btn_create.clicked.connect(self._create)
         btn_row.addStretch()
         btn_row.addWidget(btn_cancel)
@@ -1059,12 +1303,11 @@ class NewProjectDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "错误", str(e))
 
-
     def _style(self):
         return f"""
-        QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
-        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; padding:8px; border-radius:4px; }}
-        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
-            border:1px solid {PALETTE['border']}; padding:6px 16px; border-radius:4px; }}
+        QDialog {{ background:{PALETTE["bg"]}; color:{PALETTE["text"]}; }}
+        QLineEdit {{ background:{PALETTE["input_bg"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; padding:8px; border-radius:4px; }}
+        QPushButton {{ background:{PALETTE["panel"]}; color:{PALETTE["text"]};
+            border:1px solid {PALETTE["border"]}; padding:6px 16px; border-radius:4px; }}
         """
