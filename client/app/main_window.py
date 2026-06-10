@@ -583,7 +583,12 @@ class MainWindow(QMainWindow):
     def _update_preview(self, design_json: str):
         """渲染设计 JSON 到预览区。"""
         try:
-            self.preview_scene.clear()
+            self._do_update_preview(design_json)
+        except Exception as e:
+            print(f"Preview error: {e}")
+
+    def _do_update_preview(self, design_json: str):
+        self.preview_scene.clear()
         if not design_json:
             return
         try:
@@ -598,12 +603,10 @@ class MainWindow(QMainWindow):
 
         # 计算边界
         min_x, min_y, max_x, max_y = float("inf"), float("inf"), float("-inf"), float("-inf")
-        items = []
 
         for b in buildings:
             el, bx, by, bw, bh = self._building_to_scene(b)
             if el:
-                items.append(el)
                 min_x = min(min_x, bx)
                 min_y = min(min_y, by)
                 max_x = max(max_x, bx + bw)
@@ -612,15 +615,11 @@ class MainWindow(QMainWindow):
         if min_x == float("inf"):
             return
 
-        # 添加图元
-
         # 缩放适配
         pad = max(max_x - min_x, max_y - min_y) * 0.15
         self.preview_scene.setSceneRect(min_x - pad, min_y - pad,
                                          max_x - min_x + pad * 2, max_y - min_y + pad * 2)
         self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
-        except Exception as e:
-            print(f"Preview error: {e}")
 
     def _building_to_scene(self, building: dict):
         """建筑 → QGraphicsItems。复用与 cad_engine 相同的坐标逻辑。"""
