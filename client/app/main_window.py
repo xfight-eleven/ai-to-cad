@@ -218,6 +218,7 @@ class MainWindow(QMainWindow):
         QListWidget::item {{ padding:8px 12px; }}
         QListWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
         QListWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
+        QListWidget::item:selected:!active {{ background:{PALETTE['primary_dim']}; }}
         QTextEdit {{ background:{PALETTE['panel']}; color:{PALETTE['text']}; border:1px solid {PALETTE['border']};
             border-radius:6px; padding:8px; font-size:13px; }}
         QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
@@ -915,6 +916,7 @@ class NewProjectDialog(QDialog):
         QListWidget::item {{ padding:8px 12px; border-bottom:1px solid {PALETTE['border']}; }}
         QListWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
         QListWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
+        QListWidget::item:selected:!active {{ background:{PALETTE['primary_dim']}; }}
         """)
 
         layout = QVBoxLayout(self)
