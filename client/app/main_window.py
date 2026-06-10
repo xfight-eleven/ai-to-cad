@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
 from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor
-from PySide6.QtWebSockets import QWebSocket
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsTextItem
 from PySide6.QtCore import QRectF, QPointF
 from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QPolygonF
@@ -132,6 +131,44 @@ class SettingsDialog(QDialog):
         """
 
 
+
+class WsStreamWorker(QThread):
+    """后台线程：WebSocket 流式调用 AI。"""
+    token_received = Signal(str)
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, ws_url: str, data: dict):
+        super().__init__()
+        self.ws_url = ws_url
+        self.data = data
+
+    def run(self):
+        try:
+            import asyncio
+            import websockets
+            import json
+
+            async def connect():
+                async with websockets.connect(self.ws_url) as ws:
+                    await ws.send(json.dumps(self.data))
+                    while True:
+                        msg = await ws.recv()
+                        try:
+                            d = json.loads(msg)
+                        except json.JSONDecodeError:
+                            continue
+                        t = d.get("type", "")
+                        if t == "token":
+                            self.token_received.emit(d.get("text", ""))
+                        elif t in ("result", "saved", "error"):
+                            self.finished.emit(d)
+                            break
+
+            asyncio.run(connect())
+        except Exception as e:
+            self.error.emit(str(e))
+
 class MainWindow(QMainWindow):
     """桌面客户端主窗口。"""
 
@@ -144,7 +181,6 @@ class MainWindow(QMainWindow):
         self.cad_engine = None
         self.worker = None
         self.dwg_worker = None
-        self.ws = None
         self.ws_streaming = False
         self.version_map = {}  # version_id -> (number, design_json)
 
@@ -497,50 +533,33 @@ class MainWindow(QMainWindow):
         self.input_field.setEnabled(False)
         self.ws_streaming = True
 
-        # WebSocket 连接
         ws_url = self.api.base_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url += f"/api/design/ws/refine?token={self.api.token}"
 
-        self.ws = QWebSocket()
-        self.ws.textMessageReceived.connect(self._on_ws_message)
-        self.ws.connected.connect(lambda: self.ws.sendTextMessage(
-            json.dumps({"session_id": self.current_session_id, "prompt": prompt})
-        ))
-        self.ws.error.connect(lambda e: self._on_ws_error(str(e)))
-        self.ws.open(ws_url)
+        self.worker = WsStreamWorker(ws_url, {"session_id": self.current_session_id, "prompt": prompt})
+        self.worker.token_received.connect(self._on_ws_token)
+        self.worker.finished.connect(self._on_ws_result)
+        self.worker.error.connect(self._on_ws_error)
+        self.worker.start()
 
-    def _on_ws_message(self, message):
-        """处理 WebSocket 流式消息。"""
+    def _on_ws_token(self, text: str):
+        """收到流式 token。"""
         try:
-            data = json.loads(message)
-        except json.JSONDecodeError:
-            return
+            cursor = self.chat_area.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            cursor.insertText(text)
+            self.chat_area.setTextCursor(cursor)
+            self.chat_area.ensureCursorVisible()
+        except Exception:
+            pass
+
+    def _on_ws_result(self, data: dict):
+        """WebSocket 结果。"""
+        self.ws_streaming = False
+        self.input_field.setEnabled(True)
 
         msg_type = data.get("type", "")
-        if msg_type == "token":
-            # 追加 token 到对话区
-            text = data.get("text", "")
-            try:
-                cursor = self.chat_area.textCursor()
-                cursor.movePosition(QTextCursor.End)
-                cursor.insertText(text)
-                self.chat_area.setTextCursor(cursor)
-                self.chat_area.ensureCursorVisible()
-            except Exception:
-                pass
-        elif msg_type == "result":
-            # 生成完成
-            self.ws_streaming = False
-            self.input_field.setEnabled(True)
-            version_number = 0
-            version_id = ""
-            if not data.get("error"):
-                design_json = data.get("design_json", "{}")
-                description = data.get("description", "")
-            self._last_ws_result = data
-        elif msg_type == "saved":
-            self.ws_streaming = False
-            self.input_field.setEnabled(True)
+        if msg_type == "saved":
             version_id = data.get("version_id", "")
             version_number = data.get("version_number", 0)
             self.chat_area.insertHtml(
@@ -549,25 +568,16 @@ class MainWindow(QMainWindow):
             )
             self.version_map[version_id] = (version_number, data.get("design_json", "{}"))
             self._load_versions()
-            if self.ws:
-                self.ws.close()
-                self.ws = None
         elif msg_type == "error":
-            self.ws_streaming = False
-            self.input_field.setEnabled(True)
             self._show_error(data.get("message", "未知错误"))
-            if self.ws:
-                self.ws.close()
-                self.ws = None
+        elif msg_type == "result":
+            # result 后通常跟着 saved
+            pass
 
-    def _on_ws_error(self, error_msg):
+    def _on_ws_error(self, error_msg: str):
         self.ws_streaming = False
         self.input_field.setEnabled(True)
-        self._append_message("assistant", f"⚠️ {error_msg}")
         self._show_error(error_msg)
-        if self.ws:
-            self.ws.close()
-            self.ws = None
 
     # ── 版本 ──
 
