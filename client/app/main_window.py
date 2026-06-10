@@ -887,72 +887,168 @@ class MainWindow(QMainWindow):
 
 
 class NewProjectDialog(QDialog):
-    """新建项目对话框。"""
+    """新建项目对话框 — 双栏布局：左边边界选择，右边参考项目。"""
 
     def __init__(self, api: APIClient, parent=None):
         super().__init__(parent)
         self.api = api
+        self.selected_boundaries: list = []
+        self.selected_ref: str = None
+
         self.setWindowTitle("新建项目")
-        self.setMinimumWidth(480)
-        self.setStyleSheet(self._style())
+        self.setMinimumWidth(760)
+        self.setMinimumHeight(500)
+        self.setStyleSheet(f"""
+        QDialog {{ background:{PALETTE['bg']}; color:{PALETTE['text']}; }}
+        QLabel {{ color:{PALETTE['text']}; font-size:13px; }}
+        QLineEdit {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; padding:10px; border-radius:6px; font-size:14px; }}
+        QPushButton {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; padding:6px 16px; border-radius:4px; font-size:13px; }}
+        QPushButton:hover {{ border-color:{PALETTE['primary']}; }}
+        QComboBox {{ background:{PALETTE['input_bg']}; color:{PALETTE['text']};
+            border:1px solid {PALETTE['border']}; border-radius:4px; padding:6px; }}
+        QCheckBox {{ color:{PALETTE['text']}; font-size:13px; spacing:8px; }}
+        QScrollArea {{ border:none; background:{PALETTE['panel']}; border-radius:6px; }}
+        QListWidget {{ background:{PALETTE['panel']}; color:{PALETTE['text']};
+            border:none; font-size:13px; outline:none; }}
+        QListWidget::item {{ padding:8px 12px; border-bottom:1px solid {PALETTE['border']}; }}
+        QListWidget::item:hover {{ background:rgba(79,110,247,0.1); }}
+        QListWidget::item:selected {{ background:{PALETTE['primary_dim']}; }}
+        """)
 
-        layout = QFormLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
 
+        # 标题
+        title_row = QHBoxLayout()
+        title_label = QLabel("新建项目")
+        title_label.setStyleSheet("font-size:18px; font-weight:700;")
+        title_row.addWidget(title_label)
+        title_row.addStretch()
+        layout.addLayout(title_row)
+
+        # 项目名称
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("项目名称"))
         self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("例如：成都2000平肉制品厂")
-        layout.addRow("项目名称", self.title_input)
+        self.title_input.setPlaceholderText("例：成都肉制品加工厂")
+        name_layout.addWidget(self.title_input, 1)
+        layout.addLayout(name_layout)
 
-        # 边界选择
-        self.boundary_checks = []
-        self.boundary_group = QGroupBox("设计边界（可多选）")
-        bv = QVBoxLayout(self.boundary_group)
+        # 双栏
+        cols = QHBoxLayout()
+        cols.setSpacing(12)
+
+        # 左栏：设计边界
+        left_col = QVBoxLayout()
+        left_header = QHBoxLayout()
+        left_header.addWidget(QLabel("设计边界"))
+        bound_badge = QLabel("可选，多选")
+        bound_badge.setStyleSheet(f"color:{PALETTE['text_faint']}; font-size:11px;")
+        left_header.addWidget(bound_badge)
+        left_header.addStretch()
+        left_col.addLayout(left_header)
+
+        self.bound_search = QLineEdit()
+        self.bound_search.setPlaceholderText("搜索边界模板…")
+        self.bound_search.textChanged.connect(self._filter_boundaries)
+        left_col.addWidget(self.bound_search)
+
+        self.bound_list = QListWidget()
+        self.bound_list.setSelectionMode(QListWidget.MultiSelection)
         try:
             for b in api.list_boundaries():
-                cb = QCheckBox(b["name"])
-                cb.setProperty("boundary_id", b["id"])
-                bv.addWidget(cb)
-                self.boundary_checks.append(cb)
+                item = QListWidgetItem(b["name"])
+                item.setData(Qt.UserRole, b["id"])
+                item.setToolTip(b.get("description", ""))
+                self.bound_list.addItem(item)
         except Exception:
-            bv.addWidget(QLabel("（无法加载边界列表）"))
-        layout.addRow(self.boundary_group)
+            self.bound_list.addItem("（无法加载）")
+        left_col.addWidget(self.bound_list)
+        cols.addLayout(left_col)
 
-        # 参考项目
-        self.ref_combo = QComboBox()
-        self.ref_combo.addItem("（无）", None)
+        # 右栏：参考项目
+        right_col = QVBoxLayout()
+        right_header = QHBoxLayout()
+        right_header.addWidget(QLabel("参考项目"))
+        ref_badge = QLabel("可选")
+        ref_badge.setStyleSheet(f"color:{PALETTE['text_faint']}; font-size:11px;")
+        right_header.addWidget(ref_badge)
+        right_header.addStretch()
+        right_col.addLayout(right_header)
+
+        self.ref_search = QLineEdit()
+        self.ref_search.setPlaceholderText("搜索参考项目…")
+        self.ref_search.textChanged.connect(self._filter_refs)
+        right_col.addWidget(self.ref_search)
+
+        self.ref_list = QListWidget()
+        self.ref_list.addItem("（无）")
+        self.ref_list.item(0).setData(Qt.UserRole, None)
+        self.ref_list.setCurrentRow(0)
         try:
             for rp in api.list_reference_projects():
-                self.ref_combo.addItem(rp["title"], rp["id"])
+                item = QListWidgetItem(rp["title"])
+                item.setData(Qt.UserRole, rp["id"])
+                self.ref_list.addItem(item)
         except Exception:
             pass
-        layout.addRow("参考项目", self.ref_combo)
+        right_col.addWidget(self.ref_list)
+        cols.addLayout(right_col)
+
+        layout.addLayout(cols, 1)
+
+        # 底部提示
+        hint = QLabel("不选设计边界 → AI 作为高级 CAD 操作员，无行业限制自由出图")
+        hint.setStyleSheet(f"color:{PALETTE['text_faint']}; font-size:12px;")
+        layout.addWidget(hint)
 
         # 按钮
         btn_row = QHBoxLayout()
         btn_cancel = QPushButton("取消")
         btn_cancel.clicked.connect(self.reject)
-        btn_create = QPushButton("创建")
-        btn_create.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; font-weight:600;")
-        btn_create.clicked.connect(self._create)
-        btn_row.addWidget(btn_cancel)
+        self.btn_create = QPushButton("创建项目")
+        self.btn_create.setStyleSheet(f"background:{PALETTE['primary']}; color:#fff; font-weight:600; padding:8px 24px;")
+        self.btn_create.clicked.connect(self._create)
         btn_row.addStretch()
-        btn_row.addWidget(btn_create)
-        layout.addRow(btn_row)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(self.btn_create)
+        layout.addLayout(btn_row)
+
+    def _filter_boundaries(self, text):
+        for i in range(self.bound_list.count()):
+            item = self.bound_list.item(i)
+            item.setHidden(text.lower() not in item.text().lower() if text else False)
+
+    def _filter_refs(self, text):
+        for i in range(self.ref_list.count()):
+            item = self.ref_list.item(i)
+            item.setHidden(text.lower() not in item.text().lower() if text else False)
 
     def _create(self):
         title = self.title_input.text().strip()
         if not title:
             QMessageBox.warning(self, "错误", "请输入项目名称")
             return
-        bids = [cb.property("boundary_id") for cb in self.boundary_checks if cb.isChecked()]
-        ref_id = self.ref_combo.currentData()
+        # 收集选中的边界
+        bids = []
+        for i in range(self.bound_list.count()):
+            item = self.bound_list.item(i)
+            if item.isSelected():
+                bid = item.data(Qt.UserRole)
+                if bid:
+                    bids.append(bid)
+        # 参考项目
+        ref_item = self.ref_list.currentItem()
+        ref_id = ref_item.data(Qt.UserRole) if ref_item else None
         try:
             self.api.create_project(title, bids, ref_id)
             self.accept()
         except Exception as e:
-            return
             QMessageBox.warning(self, "错误", str(e))
+
 
     def _style(self):
         return f"""
