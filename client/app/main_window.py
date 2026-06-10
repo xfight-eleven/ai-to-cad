@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
 from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor
 from PySide6.QtWebSockets import QWebSocket
+from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsTextItem
+from PySide6.QtCore import QRectF, QPointF
+from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QPolygonF
 
 from app.api_client import APIClient
 from app.config_manager import load_config, save_credentials, clear_credentials, get_server_url
@@ -305,34 +308,38 @@ class MainWindow(QMainWindow):
         center_layout.addWidget(input_frame)
         splitter.addWidget(center_panel)
 
-        # ── 右侧：版本面板 ──
+        # ── 右侧：版本面板 + 预览 ──
         right_panel = QWidget()
-        right_panel.setFixedWidth(280)
+        right_panel.setMinimumWidth(320)
         right_panel.setStyleSheet(f"background:{PALETTE['sidebar']};")
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.setSpacing(8)
+        right_layout.setContentsMargins(8, 8, 8, 8)
+        right_layout.setSpacing(6)
 
-        version_title = QLabel("版本记录")
-        version_title.setStyleSheet("font-size:14px; font-weight:600;")
-        right_layout.addWidget(version_title)
-        right_layout.addWidget(self._sep())
-
+        # 版本树
         self.version_tree = QTreeWidget()
         self.version_tree.setHeaderLabels(["版本", "操作"])
-        self.version_tree.setColumnWidth(0, 130)
-        self.version_tree.setColumnWidth(1, 120)
+        self.version_tree.setColumnWidth(0, 100)
+        self.version_tree.setColumnWidth(1, 90)
         self.version_tree.header().setStretchLastSection(True)
+        self.version_tree.setMaximumHeight(200)
+        self.version_tree.currentItemChanged.connect(self._on_version_selected)
         right_layout.addWidget(self.version_tree)
 
-        btn_refresh = QPushButton("刷新版本")
-        btn_refresh.clicked.connect(self._load_versions)
-        right_layout.addWidget(btn_refresh)
+        # 预览图
+        self.preview_view = QGraphicsView()
+        self.preview_view.setStyleSheet(f"background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:6px;")
+        self.preview_view.setRenderHint(QPainter.Antialiasing)
+        self.preview_view.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.preview_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.preview_scene = QGraphicsScene()
+        self.preview_view.setScene(self.preview_scene)
+        right_layout.addWidget(self.preview_view, 1)
 
         splitter.addWidget(right_panel)
 
         # 比例设置
-        splitter.setSizes([260, 860, 280])
+        splitter.setSizes([260, 860, 360])
         hlayout.addWidget(splitter)
 
     def _sep(self):
@@ -560,6 +567,150 @@ class MainWindow(QMainWindow):
             self.ws = None
 
     # ── 版本 ──
+
+    def _on_version_selected(self, item):
+        """选中版本时更新预览。"""
+        if not item:
+            return
+        vid = item.data(0, Qt.UserRole)
+        if vid and vid in self.version_map:
+            _, design_json = self.version_map[vid]
+            self._update_preview(design_json)
+
+    def _update_preview(self, design_json: str):
+        """渲染设计 JSON 到预览区。"""
+        self.preview_scene.clear()
+        if not design_json:
+            return
+        try:
+            import json
+            design = json.loads(design_json)
+        except Exception:
+            return
+
+        buildings = design.get("buildings", [])
+        if not buildings:
+            return
+
+        # 计算边界
+        min_x, min_y, max_x, max_y = float("inf"), float("inf"), float("-inf"), float("-inf")
+        items = []
+
+        for b in buildings:
+            el, bx, by, bw, bh = self._building_to_scene(b)
+            if el:
+                items.append(el)
+                min_x = min(min_x, bx)
+                min_y = min(min_y, by)
+                max_x = max(max_x, bx + bw)
+                max_y = max(max_y, by + bh)
+
+        if min_x == float("inf"):
+            return
+
+        # 添加图元
+        for item in items:
+            self.preview_scene.addItem(item)
+
+        # 缩放适配
+        pad = max(max_x - min_x, max_y - min_y) * 0.15
+        self.preview_scene.setSceneRect(min_x - pad, min_y - pad,
+                                         max_x - min_x + pad * 2, max_y - min_y + pad * 2)
+        self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
+
+    def _building_to_scene(self, building: dict):
+        """建筑 → QGraphicsItems。复用与 cad_engine 相同的坐标逻辑。"""
+        name = building.get("name", "")
+        dims = building.get("dimensions", {})
+        pos = building.get("position", {})
+        scale = 1  # 预览直接用米为单位
+
+        x = pos.get("x", 0)
+        y = pos.get("y", 0)
+        w = dims.get("width", 0) or 0
+        h = dims.get("length", 0) or 0
+        if w <= 0 or h <= 0:
+            return None, 0, 0, 0, 0
+
+        group = []
+
+        # 外墙
+        rect = self.preview_scene.addRect(QRectF(x, y, w, h),
+            QPen(QColor("#4F6EF7"), 0.15),
+            QBrush(QColor(79, 110, 247, 30)))
+        group.append(rect)
+
+        # 建筑名
+        text = self.preview_scene.addText(name)
+        text.setDefaultTextColor(QColor("#98989E"))
+        text.setPos(x + w / 2 - 15, y - 3)
+        text.setScale(0.3)
+        group.append(text)
+
+        # 区域划分 (zones)
+        for zone in building.get("zones", []):
+            zdims = zone.get("dimensions", {})
+            zw = zdims.get("width", 0) or 0
+            zl = zdims.get("length", 0) or 0
+            if zw <= 0 or zl <= 0:
+                continue
+            zpos = zone.get("position", "").lower()
+            zx, zy = self._zone_pos(zpos, x, y, w, h, zw, zl)
+            zr = self.preview_scene.addRect(QRectF(zx, zy, zw, zl),
+                QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
+                QBrush(QColor(249, 168, 37, 20)))
+            group.append(zr)
+            zn = zone.get("name", "")
+            if zn:
+                zt = self.preview_scene.addText(zn)
+                zt.setDefaultTextColor(QColor("#F9A825"))
+                zt.setPos(zx + zw / 2 - 8, zy + zl / 2)
+                zt.setScale(0.25)
+                group.append(zt)
+
+        # 区域划分 (divisions)
+        divisions = building.get("divisions", {})
+        if isinstance(divisions, dict):
+            for pos_key, d_info in divisions.items():
+                if not isinstance(d_info, dict):
+                    continue
+                ddims = d_info.get("dimensions", {})
+                dw = ddims.get("width", 0) or 0
+                dl = ddims.get("height") or ddims.get("length", 0) or 0
+                if dw <= 0 or dl <= 0:
+                    continue
+                dx, dy = self._zone_pos(pos_key, x, y, w, h, dw, dl)
+                dr = self.preview_scene.addRect(QRectF(dx, dy, dw, dl),
+                    QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
+                    QBrush(QColor(249, 168, 37, 20)))
+                group.append(dr)
+
+        # 房间
+        for room in building.get("rooms", []):
+            rx = room.get("x", 0) or 0
+            ry = room.get("y", 0) or 0
+            rw = room.get("width", 0) or 0
+            rl = room.get("length", 0) or 0
+            if rw <= 0 or rl <= 0:
+                continue
+            rr = self.preview_scene.addRect(QRectF(x + rx, y + ry, rw, rl),
+                QPen(QColor(123, 140, 255, 100), 0.08, Qt.DashLine))
+            group.append(rr)
+
+        return group, x, y, w, h
+
+    def _zone_pos(self, pos_key, bx, by, bw, bh, zw, zl):
+        """计算区域位置。"""
+        p = str(pos_key).lower()
+        if "top" in p or "up" in p:
+            return bx, by
+        elif "bottom" in p or "down" in p:
+            return bx, by + bh - zl
+        elif "left" in p:
+            return bx, by + (bh - zl) / 2
+        elif "right" in p:
+            return bx + bw - zw, by + (bh - zl) / 2
+        return bx, by
 
     def _load_versions(self):
         self.version_tree.clear()
