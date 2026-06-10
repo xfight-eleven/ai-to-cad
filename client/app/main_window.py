@@ -520,11 +520,14 @@ class MainWindow(QMainWindow):
         if msg_type == "token":
             # 追加 token 到对话区
             text = data.get("text", "")
-            cursor = self.chat_area.textCursor()
-            cursor.movePosition(QTextCursor.End)
-            cursor.insertText(text)
-            self.chat_area.setTextCursor(cursor)
-            self.chat_area.ensureCursorVisible()
+            try:
+                cursor = self.chat_area.textCursor()
+                cursor.movePosition(QTextCursor.End)
+                cursor.insertText(text)
+                self.chat_area.setTextCursor(cursor)
+                self.chat_area.ensureCursorVisible()
+            except Exception:
+                pass
         elif msg_type == "result":
             # 生成完成
             self.ws_streaming = False
@@ -579,7 +582,8 @@ class MainWindow(QMainWindow):
 
     def _update_preview(self, design_json: str):
         """渲染设计 JSON 到预览区。"""
-        self.preview_scene.clear()
+        try:
+            self.preview_scene.clear()
         if not design_json:
             return
         try:
@@ -615,6 +619,8 @@ class MainWindow(QMainWindow):
         self.preview_scene.setSceneRect(min_x - pad, min_y - pad,
                                          max_x - min_x + pad * 2, max_y - min_y + pad * 2)
         self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
+        except Exception as e:
+            print(f"Preview error: {e}")
 
     def _building_to_scene(self, building: dict):
         """建筑 → QGraphicsItems。复用与 cad_engine 相同的坐标逻辑。"""
