@@ -66,6 +66,7 @@ class DWGUploadWorker(QThread):
             result = self.api.upload_dwg(self.version_id, self.file_path)
             self.finished.emit(result)
         except Exception as e:
+            return
             self.error.emit(str(e))
 
 
@@ -167,6 +168,7 @@ class WsStreamWorker(QThread):
 
             asyncio.run(connect())
         except Exception as e:
+            return
             self.error.emit(str(e))
 
 class MainWindow(QMainWindow):
@@ -396,6 +398,7 @@ class MainWindow(QMainWindow):
                 self.project_list.addItem(item)
 
         except Exception as e:
+            return
             self._show_error(f"加载项目失败: {e}")
 
     def _on_project_selected(self, item):
@@ -427,6 +430,7 @@ class MainWindow(QMainWindow):
             if sessions:
                 self._switch_session(sessions[0]["id"], sessions[0]["title"])
         except Exception as e:
+            return
             import traceback
             self._show_error(f"加载会话失败:\n{str(e)}\n\n{traceback.format_exc()[-200:]}")
 
@@ -491,6 +495,7 @@ class MainWindow(QMainWindow):
             self.api.create_session(self.current_project_id, title)
             self._load_sessions()
         except Exception as e:
+            return
             self._show_error(f"创建会话失败: {e}")
 
     # ── 对话 ──
@@ -504,6 +509,7 @@ class MainWindow(QMainWindow):
             for m in detail.get("messages", []):
                 self._append_message(m["role"], m["content"], m.get("version_id"))
         except Exception as e:
+            return
             self._show_error(f"加载对话失败: {e}")
 
     def _append_message(self, role: str, content: str, version_id: str = None):
@@ -595,18 +601,19 @@ class MainWindow(QMainWindow):
         try:
             self._do_update_preview(design_json)
         except Exception as e:
+            return
             print(f"Preview error: {e}")
 
     def _do_update_preview(self, design_json: str):
         self.preview_scene.clear()
         if not design_json:
+            print("PREVIEW: no design_json")
             return
         try:
             import json
             design = json.loads(design_json)
-        except Exception:
+        except Exception as e:
             return
-
         buildings = design.get("buildings", [])
         if not buildings:
             return
@@ -733,7 +740,16 @@ class MainWindow(QMainWindow):
             detail = self.api.get_session(self.current_session_id)
             versions = detail.get("versions", [])
             for v in versions:
-                self.version_map[v["id"]] = (v["number"], v.get("design_json", "{}"))
+                dj = v.get("design_json", "")
+                if not dj or dj == "{}":
+                    # API 版本列表不含 design_json，保留已有的
+                    if v["id"] not in self.version_map:
+                        self.version_map[v["id"]] = (v["number"], "")
+                    else:
+                        _, existing_dj = self.version_map[v["id"]]
+                        self.version_map[v["id"]] = (v["number"], existing_dj)
+                else:
+                    self.version_map[v["id"]] = (v["number"], dj)
                 item = QTreeWidgetItem(self.version_tree)
                 item.setText(0, f"v{v['number']}")
                 item.setData(0, Qt.UserRole, v["id"])
@@ -752,6 +768,7 @@ class MainWindow(QMainWindow):
 
                 self.version_tree.setItemWidget(item, 1, btn_w)
         except Exception as e:
+            return
             self._show_error(f"加载版本失败: {e}")
         else:
             # 自动选中最新版本并更新预览
@@ -800,6 +817,7 @@ class MainWindow(QMainWindow):
             self.dwg_worker.start()
 
         except Exception as e:
+            return
             self._show_error(f"CAD 操作失败: {e}")
 
     # ── 其他 ──
@@ -832,6 +850,7 @@ class MainWindow(QMainWindow):
                     self.current_session_title = title.strip()
             except Exception as e:
                 QMessageBox.warning(self, "错误", str(e))
+            return
 
     def _show_error(self, msg: str):
         QMessageBox.warning(self, "错误", msg)
@@ -902,6 +921,7 @@ class NewProjectDialog(QDialog):
             self.api.create_project(title, bids, ref_id)
             self.accept()
         except Exception as e:
+            return
             QMessageBox.warning(self, "错误", str(e))
 
     def _style(self):
