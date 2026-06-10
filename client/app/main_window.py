@@ -409,8 +409,10 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.UserRole, p["id"])
                 self.project_list.addItem(item)
 
+            # 自动选中第一个（最新）项目
+            if self.project_list.count() > 0:
+                self.project_list.setCurrentRow(0)
         except Exception as e:
-            return
             self._show_error(f"加载项目失败: {e}")
 
     def _on_project_selected(self, item):
