@@ -609,8 +609,6 @@ class MainWindow(QMainWindow):
             return
 
         # 添加图元
-        for item in items:
-            self.preview_scene.addItem(item)
 
         # 缩放适配
         pad = max(max_x - min_x, max_y - min_y) * 0.15
