@@ -607,17 +607,31 @@ class MainWindow(QMainWindow):
         if not item:
             return
         vid = item.data(0, Qt.UserRole)
-        if vid and vid in self.version_map:
+        if not vid:
+            return
+
+        # 从缓存获取 design_json
+        if vid in self.version_map:
             _, design_json = self.version_map[vid]
-            self._update_preview(design_json)
+            if design_json and design_json != "{}":
+                self._update_preview(design_json)
+                return
+
+        # 缓存没有或为空 → 从 API 拉取
+        try:
+            detail = self.api.get_version(vid)
+            dj = detail.get("design_json", "")
+            self.version_map[vid] = (detail.get("number", 0), dj)
+            self._update_preview(dj)
+        except Exception as e:
+            pass
 
     def _update_preview(self, design_json: str):
         """渲染设计 JSON 到预览区。"""
         try:
             self._do_update_preview(design_json)
         except Exception as e:
-            return
-            print(f"Preview error: {e}")
+            pass
 
     def _do_update_preview(self, design_json: str):
         self.preview_scene.clear()
