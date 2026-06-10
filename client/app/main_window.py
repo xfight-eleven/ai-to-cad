@@ -162,7 +162,9 @@ class WsStreamWorker(QThread):
                         t = d.get("type", "")
                         if t == "token":
                             self.token_received.emit(d.get("text", ""))
-                        elif t in ("result", "saved", "error"):
+                        elif t == "result":
+                            self.finished.emit(d)
+                        elif t in ("saved", "error"):
                             self.finished.emit(d)
                             break
 
