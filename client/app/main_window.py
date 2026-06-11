@@ -23,7 +23,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QPolygonF,
-    QTextCursor,
+
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -66,6 +66,7 @@ from PySide6.QtWidgets import (
 
 from app.api_client import APIClient
 from app.cad_engine import HAS_PYWIN32, CadEngine
+from app.widgets.chat_bubble import ChatPanel
 from app.config_manager import (
     clear_credentials,
     get_server_url,
@@ -148,7 +149,6 @@ class DWGUploadWorker(QThread):
             result = self.api.upload_dwg(self.version_id, self.file_path)
             self.finished.emit(result)
         except Exception as e:
-            return
             self.error.emit(str(e))
 
 
@@ -256,7 +256,6 @@ class WsStreamWorker(QThread):
 
             asyncio.run(connect())
         except Exception as e:
-            return
             self.error.emit(str(e))
 
 
@@ -423,11 +422,9 @@ class MainWindow(QMainWindow):
 
         center_layout.addWidget(self.session_bar)
 
-        # 对话记录
-        self.chat_area = QTextEdit()
-        self.chat_area.setReadOnly(True)
-        self.chat_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        center_layout.addWidget(self.chat_area, 1)
+        # 对话记录（豆包风格气泡）
+        self.chat_panel = ChatPanel()
+        center_layout.addWidget(self.chat_panel, 1)
 
         # 输入区
         input_frame = QFrame()
@@ -671,11 +668,12 @@ class MainWindow(QMainWindow):
                 btn.setChecked(btn.text() == title)
                 btn.blockSignals(False)
         # Clear old data
-        self.chat_area.clear()
+        self.chat_panel.clear()
         self.version_tree.clear()
         self.version_map.clear()
-        self._load_messages()
+        # 先加载版本（填充 version_map），再恢复对话预览缩略图
         self._load_versions()
+        self._load_messages()
 
     def _on_session_selected(self, item):
         pass  # 会话列表已移除，改为自动选中首个会话
@@ -702,27 +700,45 @@ class MainWindow(QMainWindow):
     # ── 对话 ──
 
     def _load_messages(self):
-        self.chat_area.clear()
+        self.chat_panel.clear()
         if not self.current_session_id:
             return
         try:
             detail = self.api.get_session(self.current_session_id)
             for m in detail.get("messages", []):
-                self._append_message(m["role"], m["content"], m.get("version_id"))
+                bub = self._append_message(m["role"], m["content"], m.get("version_id"))
+                # 如果有 version_id，尝试恢复预览缩略图
+                vid = m.get("version_id")
+                if vid and bub:
+                    self._restore_preview_for_version(bub, vid)
         except Exception as e:
             return
             self._show_error(f"加载对话失败: {e}")
 
     def _append_message(self, role: str, content: str, version_id: str = None):
-        color = PALETTE["primary"] if role == "user" else PALETTE["accent"]
-        prefix = "你" if role == "user" else "AI"
-        timestamp = datetime.now().strftime("%H:%M")
-        html = f'<div style="margin:8px 0;"><span style="color:{color};font-weight:600;">{prefix}</span>'
-        html += f' <span style="color:{PALETTE["text_faint"]};font-size:11px;">{timestamp}</span><br>'
-        html += f"{content}</div>"
+        ts = datetime.now().strftime("%H:%M")
+        bub = self.chat_panel.add_message(content, role, ts)
         if version_id:
-            html += f'<div style="color:{PALETTE["text_faint"]};font-size:11px;">版本: {version_id[:8]}</div>'
-        self.chat_area.insertHtml(html)
+            bub.addActionButton("推CAD", lambda vid=version_id: self._push_to_cad(vid))
+        return bub
+
+    def _restore_preview_for_version(self, bub, vid: str):
+        """尝试从缓存/API 获取 design_json 并恢复版本预览缩略图。"""
+        # 即使 version_map 中有该版本，若 design_json 为空也要尝试 API 拉取
+        dj = ""
+        if vid in self.version_map:
+            _, dj = self.version_map[vid]
+        if not dj or dj == "{}":
+            try:
+                v = self.api.get_version(vid)
+                dj = v.get("design_json", "")
+                self.version_map[vid] = (v.get("number", 0), dj)
+            except Exception:
+                return
+        if dj and dj != "{}":
+            pm = self._render_preview_pixmap(dj)
+            if pm:
+                bub.setPreview(pm, lambda vid=vid: self._show_version_in_preview(vid))
 
     def _send_message(self):
         prompt = self.input_field.text().strip()
@@ -740,6 +756,10 @@ class MainWindow(QMainWindow):
         self.input_field.setEnabled(False)
         self.ws_streaming = True
 
+        # 创建流式气泡
+        ts = datetime.now().strftime("%H:%M")
+        self.chat_panel.start_streaming(ts)
+
         ws_url = self.api.base_url.replace("http://", "ws://").replace(
             "https://", "wss://"
         )
@@ -756,11 +776,7 @@ class MainWindow(QMainWindow):
     def _on_ws_token(self, text: str):
         """收到流式 token。"""
         try:
-            cursor = self.chat_area.textCursor()
-            cursor.movePosition(QTextCursor.End)
-            cursor.insertText(text)
-            self.chat_area.setTextCursor(cursor)
-            self.chat_area.ensureCursorVisible()
+            self.chat_panel.append_stream(text)
         except Exception:
             pass
 
@@ -768,29 +784,36 @@ class MainWindow(QMainWindow):
         """WebSocket 结果。"""
         self.ws_streaming = False
         self.input_field.setEnabled(True)
+        self.chat_panel.finish_stream()
 
-        msg_type = data.get("type", "")
-        if msg_type == "saved":
-            version_id = data.get("version_id", "")
-            version_number = data.get("version_number", 0)
-            self.chat_area.insertHtml(
-                f'<div style="color:{PALETTE["text_faint"]};font-size:11px;margin:4px 0">'
-                f"v{version_number} 已保存</div>"
-            )
-            # saved 不含 design_json，用 _pending_design_json
-            dj = getattr(self, "_pending_design_json", "{}")
-            self.version_map[version_id] = (version_number, dj)
-            self._load_versions()
-            self._pending_design_json = None
-        elif msg_type == "error":
-            self._show_error(data.get("message", "未知错误"))
-        elif msg_type == "result":
-            # 保存 result 的 design_json 供 saved 使用
-            self._pending_design_json = data.get("design_json", "{}")
+        try:
+            msg_type = data.get("type", "")
+            if msg_type == "saved":
+                version_id = data.get("version_id", "")
+                version_number = data.get("version_number", 0)
+                dj = getattr(self, "_pending_design_json", "{}")
+                self.version_map[version_id] = (version_number, dj)
+                bub = self.chat_panel.add_message(f"📐 v{version_number} 已保存", "ai", "")
+                # 推CAD按钮
+                bub.addActionButton("推CAD", lambda vid=version_id: self._push_to_cad(vid))
+                # 渲染预览缩略图（点击预览→右侧大图展示）
+                if dj and dj != "{}":
+                    pm = self._render_preview_pixmap(dj)
+                    if pm:
+                        bub.setPreview(pm, lambda vid=version_id: self._show_version_in_preview(vid))
+                self._load_versions()
+                self._pending_design_json = None
+            elif msg_type == "result":
+                self._pending_design_json = data.get("design_json", "{}")
+        except Exception as e:
+            print(f"[ERROR] _on_ws_result: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _on_ws_error(self, error_msg: str):
         self.ws_streaming = False
         self.input_field.setEnabled(True)
+        self.chat_panel.finish_stream()
         self._show_error(error_msg)
 
     # ── 版本 ──
@@ -830,6 +853,21 @@ class MainWindow(QMainWindow):
         """清除所有版本高亮。"""
         self.version_tree._sel_version_id = None
         self.version_tree.viewport().update()
+
+    def _show_version_in_preview(self, vid: str):
+        """通过版本 ID 在右侧预览区显示大图。"""
+        if vid in self.version_map:
+            _, dj = self.version_map[vid]
+            if dj and dj != "{}":
+                self._update_preview(dj)
+                return
+        try:
+            detail = self.api.get_version(vid)
+            dj = detail.get("design_json", "")
+            self.version_map[vid] = (detail.get("number", 0), dj)
+            self._update_preview(dj)
+        except Exception:
+            pass
 
     def _update_preview(self, design_json: str):
         """渲染设计 JSON 到预览区。"""
@@ -878,8 +916,48 @@ class MainWindow(QMainWindow):
         )
         self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
 
-    def _building_to_scene(self, building: dict):
+    def _render_preview_pixmap(self, design_json: str, mw=400, mh=250):
+        """渲染设计 JSON → QPixmap 缩略图（用于对话内嵌预览）。"""
+        try:
+            import json
+            design = json.loads(design_json)
+        except Exception:
+            return None
+        buildings = design.get("buildings", [])
+        if not buildings:
+            return None
+
+        # 创建临时场景，沿用同一套渲染逻辑
+        scene = QGraphicsScene()
+        min_x, min_y, max_x, max_y = float("inf"), float("inf"), float("-inf"), float("-inf")
+        for b in buildings:
+            el, bx, by, bw, bh = self._building_to_scene(b, scene)
+            if el:
+                min_x = min(min_x, bx)
+                min_y = min(min_y, by)
+                max_x = max(max_x, bx + bw)
+                max_y = max(max_y, by + bh)
+        if min_x == float("inf"):
+            return None
+
+        pad = max(max_x - min_x, max_y - min_y) * 0.12
+        scene_rect = QRectF(min_x - pad, min_y - pad,
+                            max_x - min_x + pad * 2, max_y - min_y + pad * 2)
+        scene.setSceneRect(scene_rect)
+
+        # 渲染到 pixmap
+        pm = QPixmap(mw, mh)
+        pm.fill(QColor(PALETTE["bg"]))
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        scene.render(p, QRectF(0, 0, mw, mh), scene_rect, Qt.KeepAspectRatio)
+        p.end()
+        return pm
+
+    def _building_to_scene(self, building: dict, scene=None):
         """建筑 → QGraphicsItems。复用与 cad_engine 相同的坐标逻辑。"""
+        if scene is None:
+            scene = self.preview_scene
         name = building.get("name", "")
         dims = building.get("dimensions", {})
         pos = building.get("position", {})
@@ -895,7 +973,7 @@ class MainWindow(QMainWindow):
         group = []
 
         # 外墙
-        rect = self.preview_scene.addRect(
+        rect = scene.addRect(
             QRectF(x, y, w, h),
             QPen(QColor("#4F6EF7"), 0.15),
             QBrush(QColor(79, 110, 247, 30)),
@@ -903,7 +981,7 @@ class MainWindow(QMainWindow):
         group.append(rect)
 
         # 建筑名
-        text = self.preview_scene.addText(name)
+        text = scene.addText(name)
         text.setDefaultTextColor(QColor("#98989E"))
         text.setPos(x + w / 2 - 15, y - 3)
         text.setScale(0.3)
@@ -918,7 +996,7 @@ class MainWindow(QMainWindow):
                 continue
             zpos = zone.get("position", "").lower()
             zx, zy = self._zone_pos(zpos, x, y, w, h, zw, zl)
-            zr = self.preview_scene.addRect(
+            zr = scene.addRect(
                 QRectF(zx, zy, zw, zl),
                 QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
                 QBrush(QColor(249, 168, 37, 20)),
@@ -926,7 +1004,7 @@ class MainWindow(QMainWindow):
             group.append(zr)
             zn = zone.get("name", "")
             if zn:
-                zt = self.preview_scene.addText(zn)
+                zt = scene.addText(zn)
                 zt.setDefaultTextColor(QColor("#F9A825"))
                 zt.setPos(zx + zw / 2 - 8, zy + zl / 2)
                 zt.setScale(0.25)
@@ -944,7 +1022,7 @@ class MainWindow(QMainWindow):
                 if dw <= 0 or dl <= 0:
                     continue
                 dx, dy = self._zone_pos(pos_key, x, y, w, h, dw, dl)
-                dr = self.preview_scene.addRect(
+                dr = scene.addRect(
                     QRectF(dx, dy, dw, dl),
                     QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
                     QBrush(QColor(249, 168, 37, 20)),
@@ -959,7 +1037,7 @@ class MainWindow(QMainWindow):
             rl = room.get("length", 0) or 0
             if rw <= 0 or rl <= 0:
                 continue
-            rr = self.preview_scene.addRect(
+            rr = scene.addRect(
                 QRectF(x + rx, y + ry, rw, rl),
                 QPen(QColor(123, 140, 255, 100), 0.08, Qt.DashLine),
             )

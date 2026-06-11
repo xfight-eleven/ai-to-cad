@@ -285,3 +285,20 @@
 - 自定义 VersionItemDelegate 委托绘制，解决 stylesheet 覆盖 setBackground 问题
 - 点击 v9 只高亮 v9 两列（橙色底色），v10 不亮
 - 设计师清晰知道当前预览的是哪个版本
+
+## 十一、今日完成 (2026-06-11 第三波)
+
+### 豆包风格聊天气泡
+
+- 新建 ChatBubble / ChatPanel 组件替代 QTextEdit
+- 用户消息右对齐蓝底白字 🧑，AI 消息左对齐暗底 🤖
+- 圆角气泡、头像、流式 token 实时追加
+- 修复 WsStreamWorker `return` 在 `error.emit` 前导致异常被吞的 bug
+- 修复缺失 `websockets` 依赖导致 WebSocket 连接静默失败的 bug
+
+### 版本预览内嵌对话流
+
+- 每次保存版本时自动渲染设计图缩略图(400x250)嵌入对话气泡
+- 预览图可点击→在右侧预览区放大展示（支持滚轮缩放、拖拽平移）
+- "推CAD"按钮从版本树移至对话气泡右侧，随聊天记录保留
+- 切换项目/会话后，预览图和推CAD按钮自动从 API 恢复
