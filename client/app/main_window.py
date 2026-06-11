@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
         )
         file_menu = mb.addMenu("文件")
         file_menu.addAction("服务器设置", self._show_settings)
-        file_menu.addAction("退出", self.close)
+        file_menu.addAction("退出", self._logout)
         help_menu = mb.addMenu("帮助")
         help_menu.addAction(
             "关于",
@@ -412,13 +412,19 @@ class MainWindow(QMainWindow):
         self.session_tabs = QHBoxLayout()
         self.session_tabs.setSpacing(4)
         sb_layout.addLayout(self.session_tabs)
-        sb_layout.addStretch()
 
         self.btn_add_session = QPushButton("+")
         self.btn_add_session.setStyleSheet(f"font-size:13px; padding:2px 8px;")
         self.btn_add_session.clicked.connect(self._new_session_dialog)
         self.btn_add_session.setVisible(False)
         sb_layout.addWidget(self.btn_add_session)
+
+        sb_layout.addStretch()
+
+        btn_logout_bar = QPushButton("退出")
+        btn_logout_bar.setStyleSheet("padding:4px 10px; font-size:11px;")
+        btn_logout_bar.clicked.connect(self._logout)
+        sb_layout.addWidget(btn_logout_bar)
 
         center_layout.addWidget(self.session_bar)
 
@@ -449,107 +455,14 @@ class MainWindow(QMainWindow):
         center_layout.addWidget(input_frame)
         splitter.addWidget(center_panel)
 
-        # ── 右侧：版本面板 + 预览 ──
-        right_panel = QWidget()
-        right_panel.setMinimumWidth(320)
-        right_panel.setStyleSheet(f"background:{PALETTE['sidebar']};")
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-
-        # 右侧顶栏 → 46px，底部边线
-        right_top = QWidget()
-        right_top.setFixedHeight(46)
-        right_top.setStyleSheet(
-            f"background:{PALETTE['sidebar']}; border-bottom:1px solid {PALETTE['border']};"
-        )
-        right_top_layout = QHBoxLayout(right_top)
-        right_top_layout.setContentsMargins(12, 0, 8, 0)
-        right_label = QLabel("版本")
-        right_label.setStyleSheet("font-size:13px; font-weight:600;")
-        right_top_layout.addWidget(right_label)
-        right_top_layout.addStretch()
-
-        btn_logout = QPushButton("退出")
-        btn_logout.setStyleSheet("padding:4px 10px; font-size:11px;")
-        btn_logout.clicked.connect(self._logout)
-        right_top_layout.addWidget(btn_logout)
-
-        right_layout.addWidget(right_top)
-
-        # 内容区（可滚动）
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet(f"""
-            QScrollArea {{ border:none; background:{PALETTE['sidebar']}; }}
-            QScrollBar:vertical {{ background:{PALETTE['bg']}; width:6px; }}
-            QScrollBar::handle:vertical {{ background:{PALETTE['text_faint']}; border-radius:3px; min-height:30px; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
-        """)
-
-        right_content = QWidget()
-        right_content_layout = QVBoxLayout(right_content)
-        right_content_layout.setContentsMargins(8, 8, 8, 8)
-        right_content_layout.setSpacing(6)
-
-        # 版本树（两列一对，每行展示两个版本）
-        self.version_tree = QTreeWidget()
-        self.version_tree.setHeaderLabels(["版本", "操作", "版本", "操作"])
-        self.version_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.version_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.version_tree.header().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.version_tree.header().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.version_tree.header().setStretchLastSection(False)
-        self.version_tree.header().setDefaultAlignment(Qt.AlignCenter)
-        self.version_tree.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.version_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.version_tree.setSelectionMode(QAbstractItemView.NoSelection)
-        self.version_tree._sel_version_id = None
-        self.version_tree.setItemDelegate(VersionItemDelegate(self.version_tree))
-        self.version_tree.setStyleSheet(f"""
-            QTreeWidget {{ border:1px solid {PALETTE['border']}; }}
-            QTreeWidget QHeaderView::section {{
-                background:{PALETTE['sidebar']};
-                color:{PALETTE['text_dim']}; border:none; font-size:11px;
-                border-bottom:1px solid {PALETTE['border']};
-                border-right:1px solid {PALETTE['border']};
-                padding:0px; }}
-            QTreeWidget QHeaderView::section:last {{ border-right:none; }}
-        """)
-        self.version_tree.itemClicked.connect(self._on_version_selected)
-        right_content_layout.addWidget(self.version_tree)
-
-        # 预览图
-        self.preview_view = QGraphicsView()
-        self.preview_view.setStyleSheet(
-            f"background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:6px;"
-        )
-        self.preview_view.setRenderHint(QPainter.Antialiasing)
-        self.preview_view.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.preview_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.preview_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.preview_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.preview_scene = QGraphicsScene()
-        self.preview_view.setScene(self.preview_scene)
-        right_content_layout.addWidget(self.preview_view, 1)
-
-        scroll_area.setWidget(right_content)
-        right_layout.addWidget(scroll_area, 1)
-
-        splitter.addWidget(right_panel)
-
-        # 比例设置
-        splitter.setSizes([260, 860, 360])
+        # 比例设置（不再有右侧栏，中央占满）
+        splitter.setSizes([260, 1080])
         hlayout.addWidget(splitter)
 
-    def wheelEvent(self, event):
-        """滚轮缩放预览图。"""
-        if self.preview_view.underMouse():
-            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            self.preview_view.scale(factor, factor)
-        else:
-            super().wheelEvent(event)
+        # 隐藏的预览渲染目标（供 _update_preview / _building_to_scene 渲染到 QPixmap）
+        self.preview_scene = QGraphicsScene()
+        self.preview_view = QGraphicsView(self.preview_scene)
+        self.preview_view.setVisible(False)
 
     def _sep(self):
         f = QFrame()
@@ -916,7 +829,7 @@ class MainWindow(QMainWindow):
         )
         self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
 
-    def _render_preview_pixmap(self, design_json: str, mw=400, mh=250):
+    def _render_preview_pixmap(self, design_json: str, mw=540, mh=360):
         """渲染设计 JSON → QPixmap 缩略图（用于对话内嵌预览）。"""
         try:
             import json

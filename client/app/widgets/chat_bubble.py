@@ -1,8 +1,10 @@
 """豆包风格聊天气泡组件。"""
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QPoint, QRectF, QTimer
 from PySide6.QtGui import QFont, QPainter, QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QGraphicsScene,
+    QGraphicsView,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -11,6 +13,47 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+class PreviewView(QGraphicsView):
+    """可缩放/平移的预览图控件。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._panning = False
+        self._pan_start = QPoint()
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setInteractive(True)
+        self.setCursor(Qt.OpenHandCursor)
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        self.scale(factor, factor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._panning = True
+            self._pan_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._panning:
+            delta = event.pos() - self._pan_start
+            self._pan_start = event.pos()
+            self.translate(delta.x(), delta.y())
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._panning = False
+        self.setCursor(Qt.OpenHandCursor)
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event):
+        """双击重置视图。"""
+        self.fitInView(self.scene().itemsBoundingRect(), Qt.KeepAspectRatio)
+
 
 PALETTE = {
     "bg": "#141517",
@@ -39,6 +82,7 @@ class ChatBubble(QWidget):
         self._full_text = text
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self._preview_click = None
 
         # 外层横向：头像 + 内容
         outer = QHBoxLayout(self)
@@ -84,23 +128,28 @@ class ChatBubble(QWidget):
 
         content_col.addLayout(self.header_row)
 
-        # 预览缩略图（初始隐藏）
-        self.preview_label = QLabel()
-        self.preview_label.setMaximumWidth(540)
-        self.preview_label.setMinimumHeight(1)
-        self.preview_label.setStyleSheet(
+        # 预览区（可缩放/平移，初始隐藏）
+        self.preview_scene = QGraphicsScene()
+        self.preview_view = PreviewView()
+        self.preview_view.setScene(self.preview_scene)
+        self.preview_view.setMaximumWidth(540)
+        self.preview_view.setMinimumHeight(100)
+        self.preview_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.preview_view.setStyleSheet(
             f"background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:8px;"
         )
-        self.preview_label.setVisible(False)
-        content_col.addWidget(self.preview_label)
+        self.preview_view.setVisible(False)
+        content_col.addWidget(self.preview_view)
 
         # 排列
         if self.is_user:
+            # 用户：文本靠左，头像在文本右下角
             outer.addStretch()
             outer.addLayout(content_col)
-            outer.addSpacing(8)
-            outer.addWidget(avatar)
+            outer.addSpacing(4)
+            outer.addWidget(avatar, 0, Qt.AlignBottom)
         else:
+            # AI：头像靠左上
             outer.addWidget(avatar)
             outer.addSpacing(8)
             outer.addLayout(content_col)
@@ -117,15 +166,23 @@ class ChatBubble(QWidget):
         self.label.setText(self._full_text)
 
     def setPreview(self, pixmap: QPixmap, click_callback=None):
-        """设置版本预览缩略图。click_callback 可选，点击预览时触发。"""
-        scaled = pixmap.scaled(400, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.preview_label.setPixmap(scaled)
-        self.preview_label.setFixedSize(scaled.size())
-        self.preview_label.setVisible(True)
-        self.preview_label.setCursor(Qt.PointingHandCursor)
-        if click_callback:
-            self.preview_label.mousePressEvent = lambda ev: click_callback()
+        """设置版本预览缩略图（QGraphicsView 支持缩放/平移）。"""
+        self.preview_scene.clear()
+        self.preview_scene.addPixmap(pixmap)
+        self.preview_view.setSceneRect(self.preview_scene.itemsBoundingRect())
+        self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
+        self.preview_view.setVisible(True)
+        self.preview_view.setFixedHeight(300)
+        self._preview_click = click_callback
         self.updateGeometry()
+
+    def wheelEvent(self, event):
+        """滚轮缩放预览图。"""
+        if self.preview_view.underMouse():
+            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+            self.preview_view.scale(factor, factor)
+        else:
+            super().wheelEvent(event)
 
     def addActionButton(self, text: str, callback) -> QPushButton:
         """在气泡头部右侧添加操作按钮（如"推CAD"）。"""
