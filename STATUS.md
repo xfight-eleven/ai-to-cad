@@ -48,18 +48,24 @@
 | CAD 引擎 | client/app/cad_engine.py | ✅ |
 | 配置管理 | client/app/config_manager.py | ✅ |
 | 打包配置 | client/app.spec | ✅ |
+| 预览渲染升级 | _building_to_scene 自适应线宽/字号 + 尺寸/面积标注 | ✅ |
+| 预览交互 | PreviewView 拖拽/缩放/重置按钮 | ✅ |
 
 ---
 
 ## 🔜 待办
 
-| 优先级 | 事项 |
-|--------|------|
-| P0 | 客户端 Windows 实机测试 |
-| P0 | QGraphicsView 本地预览 |
-| P1 | 客户端接入 WebSocket 流式对话 |
-| P1 | 推 CAD 前安全确认弹窗 |
-| P2 | 版本叠图对比 |
-| P2 | 边界规则高级编辑器 |
-
-详见 TODO.md
+| 优先级 | 事项 | 状态 |
+|--------|------|------|
+| P0 | Windows 实机测试（推 CAD 完整链路） | 🟡 Mac 已跑通 |
+| P0 | cad_engine 补齐旧版功能（门/窗/柱/面积/标注线/线宽） | 🔴 |
+| P1 | 推 CAD 前安全确认弹窗 | 🔴 |
+| P1 | 对话 Markdown 渲染 | 🔴 |
+| P1 | 客户端异常处理增强（断网/Token 过期/bug 修复） | 🔴 |
+| P2 | 版本叠图对比 | 🔴 |
+| P2 | 边界规则高级编辑器 | 🔴 |
+| P2 | 客户端打包 exe (Windows) | 🔴 |
+| P2 | 客户端自动更新 | 🔴 |
+| P3 | 服务端单元测试 | 🔴 |
+| P3 | 日志系统 | 🔴 |
+| P3 | DXF 导出与预览保持一致 | 🔴 |

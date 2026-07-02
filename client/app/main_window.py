@@ -23,7 +23,6 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QPolygonF,
-
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -66,13 +65,13 @@ from PySide6.QtWidgets import (
 
 from app.api_client import APIClient
 from app.cad_engine import HAS_PYWIN32, CadEngine
-from app.widgets.chat_bubble import ChatPanel
 from app.config_manager import (
     clear_credentials,
     get_server_url,
     load_config,
     save_credentials,
 )
+from app.widgets.chat_bubble import ChatPanel
 
 # ── 暗色主题调色板 ──
 PALETTE = {
@@ -464,6 +463,14 @@ class MainWindow(QMainWindow):
         self.preview_view = QGraphicsView(self.preview_scene)
         self.preview_view.setVisible(False)
 
+        # 版本树（隐藏，用于存储版本数据，供推 CAD 等操作使用）
+        self.version_tree = QTreeWidget()
+        self.version_tree.setHeaderHidden(True)
+        self.version_tree.setColumnCount(3)
+        self.version_tree.setVisible(False)
+        self.version_tree._sel_version_id = None
+        self.version_tree.itemClicked.connect(self._on_version_selected)
+
     def _sep(self):
         f = QFrame()
         f.setFrameShape(QFrame.HLine)
@@ -706,14 +713,21 @@ class MainWindow(QMainWindow):
                 version_number = data.get("version_number", 0)
                 dj = getattr(self, "_pending_design_json", "{}")
                 self.version_map[version_id] = (version_number, dj)
-                bub = self.chat_panel.add_message(f"📐 v{version_number} 已保存", "ai", "")
+                bub = self.chat_panel.add_message(
+                    f"📐 v{version_number} 已保存", "ai", ""
+                )
                 # 推CAD按钮
-                bub.addActionButton("推CAD", lambda vid=version_id: self._push_to_cad(vid))
+                bub.addActionButton(
+                    "推CAD", lambda vid=version_id: self._push_to_cad(vid)
+                )
                 # 渲染预览缩略图（点击预览→右侧大图展示）
                 if dj and dj != "{}":
                     pm = self._render_preview_pixmap(dj)
                     if pm:
-                        bub.setPreview(pm, lambda vid=version_id: self._show_version_in_preview(vid))
+                        bub.setPreview(
+                            pm,
+                            lambda vid=version_id: self._show_version_in_preview(vid),
+                        )
                 self._load_versions()
                 self._pending_design_json = None
             elif msg_type == "result":
@@ -721,6 +735,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"[ERROR] _on_ws_result: {e}")
             import traceback
+
             traceback.print_exc()
 
     def _on_ws_error(self, error_msg: str):
@@ -803,17 +818,21 @@ class MainWindow(QMainWindow):
         if not buildings:
             return
 
-        # 计算边界
+        # ── 第一遍：计算场景范围 ──
         min_x, min_y, max_x, max_y = (
             float("inf"),
             float("inf"),
             float("-inf"),
             float("-inf"),
         )
-
         for b in buildings:
-            el, bx, by, bw, bh = self._building_to_scene(b)
-            if el:
+            pos = b.get("position", {})
+            dims = b.get("dimensions", {})
+            bx = pos.get("x", 0)
+            by = pos.get("y", 0)
+            bw = dims.get("width", 0) or 0
+            bh = dims.get("length", 0) or 0
+            if bw > 0 and bh > 0:
                 min_x = min(min_x, bx)
                 min_y = min(min_y, by)
                 max_x = max(max_x, bx + bw)
@@ -822,17 +841,27 @@ class MainWindow(QMainWindow):
         if min_x == float("inf"):
             return
 
+        ref_size = max(max_x - min_x, max_y - min_y)
+
+        # ── 第二遍：带自适应参数渲染 ──
+        for b in buildings:
+            self._building_to_scene(b, self.preview_scene, ref_size=ref_size)
+
         # 缩放适配
-        pad = max(max_x - min_x, max_y - min_y) * 0.15
+        pad = ref_size * 0.15
         self.preview_scene.setSceneRect(
             min_x - pad, min_y - pad, max_x - min_x + pad * 2, max_y - min_y + pad * 2
         )
         self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
 
-    def _render_preview_pixmap(self, design_json: str, mw=540, mh=360):
-        """渲染设计 JSON → QPixmap 缩略图（用于对话内嵌预览）。"""
+    def _render_preview_pixmap(self, design_json: str, mw=1080, mh=720):
+        """渲染设计 JSON → QPixmap 缩略图（用于对话内嵌预览）。
+
+        默认渲染 2x 分辨率，显示时由 Qt 自动缩放，确保细节清晰。
+        """
         try:
             import json
+
             design = json.loads(design_json)
         except Exception:
             return None
@@ -840,12 +869,21 @@ class MainWindow(QMainWindow):
         if not buildings:
             return None
 
-        # 创建临时场景，沿用同一套渲染逻辑
-        scene = QGraphicsScene()
-        min_x, min_y, max_x, max_y = float("inf"), float("inf"), float("-inf"), float("-inf")
+        # ── 第一遍：计算场景范围，得出 ref_size ──
+        min_x, min_y, max_x, max_y = (
+            float("inf"),
+            float("inf"),
+            float("-inf"),
+            float("-inf"),
+        )
         for b in buildings:
-            el, bx, by, bw, bh = self._building_to_scene(b, scene)
-            if el:
+            pos = b.get("position", {})
+            dims = b.get("dimensions", {})
+            bx = pos.get("x", 0)
+            by = pos.get("y", 0)
+            bw = dims.get("width", 0) or 0
+            bh = dims.get("length", 0) or 0
+            if bw > 0 and bh > 0:
                 min_x = min(min_x, bx)
                 min_y = min(min_y, by)
                 max_x = max(max_x, bx + bw)
@@ -853,9 +891,17 @@ class MainWindow(QMainWindow):
         if min_x == float("inf"):
             return None
 
-        pad = max(max_x - min_x, max_y - min_y) * 0.12
-        scene_rect = QRectF(min_x - pad, min_y - pad,
-                            max_x - min_x + pad * 2, max_y - min_y + pad * 2)
+        ref_size = max(max_x - min_x, max_y - min_y)
+
+        # ── 第二遍：带自适应参数渲染 ──
+        scene = QGraphicsScene()
+        for b in buildings:
+            self._building_to_scene(b, scene, ref_size=ref_size)
+
+        pad = ref_size * 0.12
+        scene_rect = QRectF(
+            min_x - pad, min_y - pad, max_x - min_x + pad * 2, max_y - min_y + pad * 2
+        )
         scene.setSceneRect(scene_rect)
 
         # 渲染到 pixmap
@@ -867,14 +913,16 @@ class MainWindow(QMainWindow):
         p.end()
         return pm
 
-    def _building_to_scene(self, building: dict, scene=None):
-        """建筑 → QGraphicsItems。复用与 cad_engine 相同的坐标逻辑。"""
+    def _building_to_scene(self, building: dict, scene=None, ref_size: float = 60):
+        """建筑 → QGraphicsItems。复用与 cad_engine 相同的坐标逻辑。
+
+        ref_size: 场景参考尺寸（米），线宽/字号据此自适应。
+        """
         if scene is None:
             scene = self.preview_scene
         name = building.get("name", "")
         dims = building.get("dimensions", {})
         pos = building.get("position", {})
-        scale = 1  # 预览直接用米为单位
 
         x = pos.get("x", 0)
         y = pos.get("y", 0)
@@ -883,22 +931,39 @@ class MainWindow(QMainWindow):
         if w <= 0 or h <= 0:
             return None, 0, 0, 0, 0
 
+        # ── 自适应单位：以 ref_size 为基准，所有线宽/字号成比例 ──
+        u = ref_size / 60  # 60m 为标准厂房尺寸，u=1 时为默认粗细
+
         group = []
 
         # 外墙
+        wall_pen = QPen(QColor("#4F6EF7"), 0.15 * u)
+        wall_pen.setJoinStyle(Qt.MiterJoin)
         rect = scene.addRect(
             QRectF(x, y, w, h),
-            QPen(QColor("#4F6EF7"), 0.15),
-            QBrush(QColor(79, 110, 247, 30)),
+            wall_pen,
+            QBrush(QColor(79, 110, 247, 25)),
         )
         group.append(rect)
 
-        # 建筑名
-        text = scene.addText(name)
-        text.setDefaultTextColor(QColor("#98989E"))
-        text.setPos(x + w / 2 - 15, y - 3)
-        text.setScale(0.3)
-        group.append(text)
+        # 建筑名（居中于建筑上方外侧）
+        if name:
+            font = QFont("sans-serif", max(6, int(10 * u)))
+            font.setWeight(QFont.Bold)
+            text = scene.addText(name, font)
+            text.setDefaultTextColor(QColor("#E5E5EA"))
+            tw = text.boundingRect().width()
+            # 放在建筑顶部居中
+            text.setPos(x + w / 2 - tw / 2, y - 2.5 * u)
+            group.append(text)
+
+        # 尺寸标注（建筑下方外侧）
+        dim_font = QFont("monospace", max(5, int(7 * u)))
+        dim_text = scene.addText(f"{w:.0f}m × {h:.0f}m", dim_font)
+        dim_text.setDefaultTextColor(QColor("#636368"))
+        dw = dim_text.boundingRect().width()
+        dim_text.setPos(x + w / 2 - dw / 2, y + h + 0.5 * u)
+        group.append(dim_text)
 
         # 区域划分 (zones)
         for zone in building.get("zones", []):
@@ -909,18 +974,21 @@ class MainWindow(QMainWindow):
                 continue
             zpos = zone.get("position", "").lower()
             zx, zy = self._zone_pos(zpos, x, y, w, h, zw, zl)
+            zpen = QPen(QColor("#F9A825"), 0.1 * u, Qt.DashLine)
             zr = scene.addRect(
                 QRectF(zx, zy, zw, zl),
-                QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
-                QBrush(QColor(249, 168, 37, 20)),
+                zpen,
+                QBrush(QColor(249, 168, 37, 18)),
             )
             group.append(zr)
             zn = zone.get("name", "")
             if zn:
-                zt = scene.addText(zn)
-                zt.setDefaultTextColor(QColor("#F9A825"))
-                zt.setPos(zx + zw / 2 - 8, zy + zl / 2)
-                zt.setScale(0.25)
+                zfont = QFont("sans-serif", max(4, int(8 * u)))
+                zt = scene.addText(zn, zfont)
+                zt.setDefaultTextColor(QColor(249, 168, 37))
+                ztw = zt.boundingRect().width()
+                zth = zt.boundingRect().height()
+                zt.setPos(zx + zw / 2 - ztw / 2, zy + zl / 2 - zth / 2)
                 group.append(zt)
 
         # 区域划分 (divisions)
@@ -935,12 +1003,22 @@ class MainWindow(QMainWindow):
                 if dw <= 0 or dl <= 0:
                     continue
                 dx, dy = self._zone_pos(pos_key, x, y, w, h, dw, dl)
+                dpen = QPen(QColor("#F9A825"), 0.1 * u, Qt.DashLine)
                 dr = scene.addRect(
                     QRectF(dx, dy, dw, dl),
-                    QPen(QColor("#F9A825"), 0.1, Qt.DashLine),
-                    QBrush(QColor(249, 168, 37, 20)),
+                    dpen,
+                    QBrush(QColor(249, 168, 37, 18)),
                 )
                 group.append(dr)
+                dname = d_info.get("name", "")
+                if dname:
+                    dfont = QFont("sans-serif", max(4, int(8 * u)))
+                    dt = scene.addText(dname, dfont)
+                    dt.setDefaultTextColor(QColor(249, 168, 37))
+                    dtw = dt.boundingRect().width()
+                    dth = dt.boundingRect().height()
+                    dt.setPos(dx + dw / 2 - dtw / 2, dy + dl / 2 - dth / 2)
+                    group.append(dt)
 
         # 房间
         for room in building.get("rooms", []):
@@ -948,13 +1026,38 @@ class MainWindow(QMainWindow):
             ry = room.get("y", 0) or 0
             rw = room.get("width", 0) or 0
             rl = room.get("length", 0) or 0
+            rname = room.get("name", "")
             if rw <= 0 or rl <= 0:
                 continue
+            rpen = QPen(QColor(123, 140, 255, 100), 0.08 * u, Qt.DashLine)
             rr = scene.addRect(
                 QRectF(x + rx, y + ry, rw, rl),
-                QPen(QColor(123, 140, 255, 100), 0.08, Qt.DashLine),
+                rpen,
             )
             group.append(rr)
+
+            # 房间名（居中）
+            if rname:
+                # 字号根据房间尺寸自适应：最小不小于 4pt，不超过房间短边的 1/4
+                r_short = min(rw, rl)
+                rfont_size = max(4, min(int(r_short * 0.25), int(8 * u)))
+                rfont = QFont("sans-serif", rfont_size)
+                rt = scene.addText(rname, rfont)
+                rt.setDefaultTextColor(QColor(200, 200, 210, 180))
+                rtw = rt.boundingRect().width()
+                rth = rt.boundingRect().height()
+                rt.setPos(x + rx + rw / 2 - rtw / 2, y + ry + rl / 2 - rth / 2)
+                group.append(rt)
+
+            # 房间面积（房间名下方）
+            area_m2 = rw * rl
+            area_font = QFont("monospace", max(3, int(5 * u)))
+            at = scene.addText(f"{area_m2:.0f}m²", area_font)
+            at.setDefaultTextColor(QColor(99, 99, 104))
+            atw = at.boundingRect().width()
+            ath = at.boundingRect().height()
+            at.setPos(x + rx + rw / 2 - atw / 2, y + ry + rl / 2 + 1.5 * u)
+            group.append(at)
 
         return group, x, y, w, h
 
@@ -1038,9 +1141,7 @@ class MainWindow(QMainWindow):
         btn_cad.setStyleSheet(
             f"background:{PALETTE['primary']}; color:#fff; font-size:11px; padding:2px 6px;"
         )
-        btn_cad.clicked.connect(
-            lambda checked, vid=vid: self._push_to_cad(vid)
-        )
+        btn_cad.clicked.connect(lambda checked, vid=vid: self._push_to_cad(vid))
         btn_layout.addWidget(btn_cad)
         btn_layout.addStretch()
         self.version_tree.setItemWidget(item, col, btn_w)

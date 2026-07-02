@@ -1,7 +1,7 @@
 # AI CAD — 开发移交记录
 
-> 最后更新：2026-06-09  
-> 当前阶段：桌面客户端最小可用版本代码完成，待 Windows 测试
+> 最后更新：2026-06-12  
+> 当前阶段：桌面客户端预览功能完善，待 Windows 实机测试
 
 ---
 
@@ -13,17 +13,19 @@ AI 驱动的工业厂房 CAD 设计系统。设计师通过自然语言描述需
 
 ### ✅ 已完成
 
-- **服务端** (FastAPI)：用户认证、项目管理、AI 对话、版本树、DXF 导出、SVG 预览、DWG 上传/下载/存档、DeepSeek 集成
-- **桌面客户端** (PySide6)：完整代码已写好，约 1238 行，包含登录、项目列表、AI 对话面板、版本管理、AutoCAD COM 引擎
-- **网页原型** (已删除)：可正常运行，供参考
-- **项目文档**：README.md、STATUS.md、AI-CAD-桥梁服务方案.md
+- **服务端** (FastAPI)：用户认证、项目管理、AI 对话、版本树、DXF 导出、SVG 预览、DWG 上传/下载/存档、DeepSeek 集成、WebSocket 流式对话
+- **桌面客户端** (PySide6)：登录、项目列表、AI 对话面板、WebSocket 流式聊天、版本管理、AutoCAD COM 引擎
+- **客户端预览渲染**：QGraphicsScene 自适应渲染（线宽/字号随场景缩放、建筑名居中、尺寸标注、房间名+面积、区域名居中）
+- **客户端预览交互**：拖拽平移、滚轮缩放、重置按钮、双击复位
+- **网页管理后台**：用户管理、边界配置、大模型配置、服务器配置、项目记录
+- **项目文档**：README.md、STATUS.md、TODO.md、HANDOFF.md
 
-### ❌ 待完成
+### 🔧 本次修改（2026-06-12）
 
-1. **Windows 验证** — 客户端需要在 Windows 上跑通完整流程
-2. **PySide6 安装测试** — Mac 上未安装，需在 Windows 上 pip install
-3. **推 CAD 功能实测** — 需要 Windows + AutoCAD + pywin32 环境
-4. **打包 exe** — 最终交付前在 Windows 上运行 `pyinstaller app.spec`
+| 文件 | 改动 |
+|------|------|
+| `client/app/main_window.py` | 重写 `_building_to_scene`：自适应线宽/字号、补全尺寸标注/房间名/面积；`_render_preview_pixmap` 升级 2x 分辨率+两遍渲染；`_do_update_preview` 同步两遍渲染；补回隐藏的 `version_tree` |
+| `client/app/widgets/chat_bubble.py` | PreviewView 增加 `reset_view`/`set_initial_rect`；拖拽改用 scrollbar；ChatBubble 预览区改为 QFrame 容器+重置按钮 |
 
 ## 如何在 Windows 上继续
 
@@ -88,12 +90,20 @@ pyinstaller app.spec
 | `/api/admin/llm-config` | GET/PUT | 大模型配置（API Key 等） |
 | `/api/admin/boundaries` | GET/POST | 设计边界管理 |
 
+## 架构讨论结论
+
+1. **旧版 bridge vs 新版 client cad_engine 对比**：两者都是 pywin32+COM 推送 AutoCAD，本质相同方案。但新版 cad_engine 相比旧版 bridge 缺少门/窗/柱/面积标注/标注线/图层线宽，待补齐
+2. **COM vs .NET API**：AutoCAD .NET API 更强但需加载进 CAD 进程内部，破解版兼容性有风险。当前 COM 方案适合外部遥控场景，够用且安全
+3. **技术栈评估**：C# WPF + COM 是未来可能的替代方案，开发体验更好但需团队熟悉 C#，当前 Python 方案先跑通再迭代
+
 ## 关键设计决策
 
-1. **DWG 文件永久保留** — 删除项目/会话/版本只清数据库，DWGs 文件不动。可通过 API 扫描找回
-2. **区域划分 prompt** — 已更新为统一的 `zones` 数组格式，避免 AI 每次返回不同结构
+1. **DWG 文件永久保留** — 删除项目/会话/版本只清数据库，DWGs 文件不动
+2. **区域划分 prompt** — 已更新为统一的 `zones` 数组格式
 3. **预览渲染** — 同时支持 `zones`（数组）和 `divisions`（对象）两种格式
-4. **httpx 代理问题** — 所有 httpx 调用已加 `trust_env=False`，避免 SOCKS 代理报错
+4. **httpx 代理问题** — 所有 httpx 调用已加 `trust_env=False`
+5. **自适应预览** — `_building_to_scene` 使用 `ref_size` 参数，线宽/字号根据场景范围动态计算（`u = ref_size / 60`）
+6. **预览交互** — PreviewView 记录 `_initial_scene_rect`，重置时精准回到初始视图
 
 ## 项目结构速览
 
@@ -116,4 +126,9 @@ hsxb-ai-cad/
 
 ## 下次继续时
 
-打开这个文件，从"如何在 Windows 上继续"的第二步开始执行。
+1. 打开本项目，服务端启动：`cd server && uvicorn app.main:app --host 0.0.0.0 --port 3000`
+2. 客户端启动：`cd client && .venv/bin/python -m app.main`
+3. 优先项：
+   - cad_engine 补齐旧版功能（门/窗/柱/面积标注/标注线/图层线宽）
+   - Windows 实机测试完整流程
+   - 推 CAD 前安全确认弹窗

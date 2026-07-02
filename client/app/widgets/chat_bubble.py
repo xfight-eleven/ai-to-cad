@@ -1,8 +1,9 @@
 """豆包风格聊天气泡组件。"""
 
-from PySide6.QtCore import Qt, QPoint, QRectF, QTimer
-from PySide6.QtGui import QFont, QPainter, QColor, QPen, QPixmap
+from PySide6.QtCore import QPoint, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QFrame,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+
 class PreviewView(QGraphicsView):
     """可缩放/平移的预览图控件。"""
 
@@ -21,15 +23,27 @@ class PreviewView(QGraphicsView):
         super().__init__(parent)
         self._panning = False
         self._pan_start = QPoint()
+        self._initial_scene_rect = None
         self.setRenderHint(QPainter.Antialiasing)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setInteractive(True)
         self.setCursor(Qt.OpenHandCursor)
+        self.setDragMode(QGraphicsView.NoDrag)
+
+    def reset_view(self):
+        """重置视图到初始状态（适应全部内容）。"""
+        if self.scene() and self._initial_scene_rect:
+            self.fitInView(self._initial_scene_rect, Qt.KeepAspectRatio)
+
+    def set_initial_rect(self, rect: QRectF):
+        """记录初始场景矩形，供 reset_view 使用。"""
+        self._initial_scene_rect = rect
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self.scale(factor, factor)
+        event.accept()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -37,22 +51,33 @@ class PreviewView(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
+            return
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._panning:
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
-            self.translate(delta.x(), delta.y())
+            # 用 scrollbar offset 实现平移，更稳定
+            h_bar = self.horizontalScrollBar()
+            v_bar = self.verticalScrollBar()
+            h_bar.setValue(h_bar.value() - delta.x())
+            v_bar.setValue(v_bar.value() - delta.y())
             event.accept()
+            return
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self._panning = False
-        self.setCursor(Qt.OpenHandCursor)
-        event.accept()
+        if self._panning:
+            self._panning = False
+            self.setCursor(Qt.OpenHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         """双击重置视图。"""
-        self.fitInView(self.scene().itemsBoundingRect(), Qt.KeepAspectRatio)
+        self.reset_view()
 
 
 PALETTE = {
@@ -128,18 +153,50 @@ class ChatBubble(QWidget):
 
         content_col.addLayout(self.header_row)
 
-        # 预览区（可缩放/平移，初始隐藏）
+        # 预览区容器（边框 + 工具栏 + 视图）
+        self.preview_container = QFrame()
+        self.preview_container.setMaximumWidth(540)
+        self.preview_container.setMinimumHeight(100)
+        self.preview_container.setFrameShape(QFrame.StyledPanel)
+        self.preview_container.setStyleSheet(
+            f"QFrame {{ background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:8px; }}"
+        )
+        self.preview_container.setVisible(False)
+
+        container_layout = QVBoxLayout(self.preview_container)
+        container_layout.setContentsMargins(1, 1, 1, 1)
+        container_layout.setSpacing(0)
+
+        # 顶部工具栏（重置按钮靠右）
+        toolbar = QWidget()
+        toolbar.setFixedHeight(28)
+        toolbar.setStyleSheet("background:transparent;")
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(0, 2, 6, 0)
+        toolbar_layout.addStretch()
+
+        self.btn_reset = QPushButton("⟲ 重置")
+        self.btn_reset.setStyleSheet(
+            f"QPushButton {{ background:rgba(30,31,35,0.85); color:{PALETTE['text_dim']}; "
+            f"font-size:11px; padding:2px 8px; border:1px solid {PALETTE['border']}; "
+            f"border-radius:4px; }}"
+            f"QPushButton:hover {{ background:rgba(50,51,55,0.95); }}"
+        )
+        self.btn_reset.setCursor(Qt.PointingHandCursor)
+        toolbar_layout.addWidget(self.btn_reset)
+        container_layout.addWidget(toolbar)
+
+        # 预览视图
         self.preview_scene = QGraphicsScene()
         self.preview_view = PreviewView()
         self.preview_view.setScene(self.preview_scene)
-        self.preview_view.setMaximumWidth(540)
-        self.preview_view.setMinimumHeight(100)
         self.preview_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.preview_view.setStyleSheet(
-            f"background:{PALETTE['bg']}; border:1px solid {PALETTE['border']}; border-radius:8px;"
+            f"QGraphicsView {{ background:{PALETTE['bg']}; border:none; border-bottom-left-radius:7px; border-bottom-right-radius:7px; }}"
         )
-        self.preview_view.setVisible(False)
-        content_col.addWidget(self.preview_view)
+        container_layout.addWidget(self.preview_view)
+
+        content_col.addWidget(self.preview_container)
 
         # 排列
         if self.is_user:
@@ -169,10 +226,13 @@ class ChatBubble(QWidget):
         """设置版本预览缩略图（QGraphicsView 支持缩放/平移）。"""
         self.preview_scene.clear()
         self.preview_scene.addPixmap(pixmap)
-        self.preview_view.setSceneRect(self.preview_scene.itemsBoundingRect())
-        self.preview_view.fitInView(self.preview_scene.sceneRect(), Qt.KeepAspectRatio)
-        self.preview_view.setVisible(True)
-        self.preview_view.setFixedHeight(300)
+        scene_rect = self.preview_scene.itemsBoundingRect()
+        self.preview_view.setSceneRect(scene_rect)
+        self.preview_view.set_initial_rect(scene_rect)
+        self.preview_view.fitInView(scene_rect, Qt.KeepAspectRatio)
+        self.preview_container.setVisible(True)
+        self.preview_container.setFixedHeight(328)
+        self.btn_reset.clicked.connect(self.preview_view.reset_view)
         self._preview_click = click_callback
         self.updateGeometry()
 
@@ -181,6 +241,7 @@ class ChatBubble(QWidget):
         if self.preview_view.underMouse():
             factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
             self.preview_view.scale(factor, factor)
+            event.accept()
         else:
             super().wheelEvent(event)
 

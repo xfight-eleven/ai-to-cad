@@ -11,8 +11,9 @@ from typing import Optional
 
 HAS_PYWIN32 = False
 try:
-    import win32com.client
     import pywintypes
+    import win32com.client
+
     HAS_PYWIN32 = True
 except ImportError:
     pass
@@ -20,16 +21,16 @@ except ImportError:
 SCALE = 1000.0  # JSON 中单位为米，CAD 中单位为毫米
 
 LAYERS = {
-    "WALL":       {"color": 7, "description": "外墙"},
-    "ROOM":       {"color": 3, "description": "房间分隔"},
-    "ROOM_NAME":  {"color": 2, "description": "房间名称"},
-    "TEXT":       {"color": 2, "description": "文字"},
-    "DIM":        {"color": 4, "description": "尺寸标注"},
-    "WINDOW":     {"color": 5, "description": "窗"},
-    "DOOR":       {"color": 1, "description": "门"},
-    "HATCH":      {"color": 9, "description": "填充"},
-    "ZONE":       {"color": 200, "description": "分区线"},
-    "ZONE_TEXT":  {"color": 200, "description": "分区名"},
+    "WALL": {"color": 7, "description": "外墙"},
+    "ROOM": {"color": 3, "description": "房间分隔"},
+    "ROOM_NAME": {"color": 2, "description": "房间名称"},
+    "TEXT": {"color": 2, "description": "文字"},
+    "DIM": {"color": 4, "description": "尺寸标注"},
+    "WINDOW": {"color": 5, "description": "窗"},
+    "DOOR": {"color": 1, "description": "门"},
+    "HATCH": {"color": 9, "description": "填充"},
+    "ZONE": {"color": 200, "description": "分区线"},
+    "ZONE_TEXT": {"color": 200, "description": "分区名"},
 }
 
 
@@ -94,12 +95,15 @@ class CadEngine:
         poly.Layer = "WALL"
 
         # 建筑名
-        self._text(name, bx + bw / 2, by + bh / 2 + SCALE * 0.6,
-                   SCALE * 0.5, "TEXT")
+        self._text(name, bx + bw / 2, by + bh / 2 + SCALE * 0.6, SCALE * 0.5, "TEXT")
         # 尺寸
-        self._text(f"{bw/SCALE:.1f}m × {bh/SCALE:.1f}m",
-                   bx + bw / 2, by + bh / 2 - SCALE * 0.4,
-                   SCALE * 0.3, "DIM")
+        self._text(
+            f"{bw / SCALE:.1f}m × {bh / SCALE:.1f}m",
+            bx + bw / 2,
+            by + bh / 2 - SCALE * 0.4,
+            SCALE * 0.3,
+            "DIM",
+        )
 
         # 房间
         for room in building.get("rooms", []):
@@ -128,15 +132,24 @@ class CadEngine:
         rh = room.get("length", 0) * SCALE
         if rw <= 0 or rh <= 0:
             return
-        pts = [bx + rx, by + ry, bx + rx + rw, by + ry,
-               bx + rx + rw, by + ry + rh, bx + rx, by + ry + rh]
+        pts = [
+            bx + rx,
+            by + ry,
+            bx + rx + rw,
+            by + ry,
+            bx + rx + rw,
+            by + ry + rh,
+            bx + rx,
+            by + ry + rh,
+        ]
         poly = self.msp.AddLightWeightPolyline(self._varray(pts))
         poly.Closed = True
         poly.Layer = "ROOM"
         rn = room.get("name", "")
         if rn:
-            self._text(rn, bx + rx + rw / 2, by + ry + rh / 2,
-                       min(rw, rh) * 0.3, "ROOM_NAME")
+            self._text(
+                rn, bx + rx + rw / 2, by + ry + rh / 2, min(rw, rh) * 0.3, "ROOM_NAME"
+            )
 
     def _draw_zone(self, zone: dict, bx: float, by: float, bw: float, bh: float):
         zdims = zone.get("dimensions", {})
@@ -172,8 +185,7 @@ class CadEngine:
         except Exception:
             pass
         if name:
-            self._text(name, zx + zw / 2, zy + zl / 2,
-                       min(zw, zl) * 0.25, "ZONE_TEXT")
+            self._text(name, zx + zw / 2, zy + zl / 2, min(zw, zl) * 0.25, "ZONE_TEXT")
 
     def _text(self, text, x, y, h, layer):
         txt = self.msp.AddText(text, (x, y, 0), h)
@@ -182,8 +194,9 @@ class CadEngine:
         txt.TextAlignmentPoint = (x, y, 0)
 
     def _varray(self, points):
-        from win32com.client import VARIANT
         import pythoncom
+        from win32com.client import VARIANT
+
         return VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, points)
 
     def save_as_dwg(self, filepath: str) -> str:
